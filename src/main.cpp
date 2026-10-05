@@ -1,9 +1,14 @@
 // src/main.cpp
-// 第 3 天：VBO / VAO / EBO + 着色器，画出三角形和矩形。
+// 第 4 天：GLM + 模型/观察/投影矩阵，画一个旋转的线框立方体。
+
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
 #include "shader.h"
+
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include <iostream>
 
@@ -32,12 +37,12 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    #ifdef __APPLE__
+#ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-    #endif
+#endif
 
     GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT,
-                                          "Molecule Viewer - Day 3", nullptr, nullptr);
+                                          "Molecule Viewer - Day 4", nullptr, nullptr);
     if (!window)
     {
         std::cerr << "[错误] 创建窗口失败！" << std::endl;
@@ -54,115 +59,118 @@ int main()
         return -1;
     }
     std::cout << "OpenGL: " << glGetString(GL_VERSION)
-    << " | " << glGetString(GL_RENDERER) << std::endl;
+              << " | " << glGetString(GL_RENDERER) << std::endl;
 
     glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
 
-    // ==================== 第一部分：三角形 ====================
-    // 3 个顶点，每个顶点 3 个分量 (x, y, z)
-    float triangleVertices[] = {
-        // 位置              // 颜色（用不到但先留着方便对照）
-        -0.9f, -0.5f, 0.0f,  1.0f, 0.0f, 0.0f,
-        0.9f, -0.5f, 0.0f,  0.0f, 1.0f, 0.0f,
-        0.0f,  0.7f, 0.0f,  0.0f, 0.0f, 1.0f,
+    // 打开深度测试：让前后遮挡正确
+    glEnable(GL_DEPTH_TEST);
+
+    // 打开线框模式：把三角形只画轮廓
+    // 想切回实心，改成 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+    // ==================== 立方体顶点数据 ====================
+    // 立方体 8 个顶点，范围 -0.5 ~ 0.5，中心在原点
+    float vertices[] = {
+        -0.5f, -0.5f, -0.5f, // 0
+         0.5f, -0.5f, -0.5f, // 1
+         0.5f,  0.5f, -0.5f, // 2
+        -0.5f,  0.5f, -0.5f, // 3
+        -0.5f, -0.5f,  0.5f, // 4
+         0.5f, -0.5f,  0.5f, // 5
+         0.5f,  0.5f,  0.5f, // 6
+        -0.5f,  0.5f,  0.5f  // 7
     };
 
-    unsigned int triVAO, triVBO;
-    glGenVertexArrays(1, &triVAO);   // 生成 1 个 VAO
-    glGenBuffers(1, &triVBO);        // 生成 1 个 VBO
-
-    glBindVertexArray(triVAO);       // 绑定 VAO（之后的配置记在它身上）
-
-    glBindBuffer(GL_ARRAY_BUFFER, triVBO);   // 绑定 VBO 到"数组缓冲"目标
-    // 把顶点数据上传到 GPU：GL_STATIC_DRAW 表示数据几乎不变（性能提示）
-    glBufferData(GL_ARRAY_BUFFER, sizeof(triangleVertices),
-                 triangleVertices, GL_STATIC_DRAW);
-
-    // 告诉 OpenGL 如何解读 VBO 里的数据
-    // 参数：属性编号, 分量个数, 类型, 是否归一化, 步长(字节), 起始偏移
-    // 步长 = 6 个 float（位置3 + 颜色3），所以是 6 * sizeof(float)
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);   // 启用 0 号属性
-
-    // 我们用不到颜色属性也可以不启用；这里为了让数据格式一致，启用 1 号
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
-                          (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    // 解绑（好习惯：避免之后误改）
-    glBindVertexArray(0);
-
-    Shader triShader("src/shaders/triangle.vert", "src/shaders/triangle.frag");
-
-    // ==================== 第二部分：矩形（带 EBO） ====================
-    // 4 个顶点，每个 6 个 float（位置 + 颜色）
-    float rectVertices[] = {
-        // 位置              // 颜色
-        0.5f,  0.5f, 0.0f,  1.0f, 0.0f, 0.0f,  // 右上 索引0
-        0.5f, -0.5f, 0.0f,  0.0f, 1.0f, 0.0f,  // 右下 索引1
-        -0.5f, -0.5f, 0.0f,  0.0f, 0.0f, 1.0f,  // 左下 索引2
-        -0.5f,  0.5f, 0.0f,  1.0f, 1.0f, 0.0f,  // 左上 索引3
-    };
-    // 用 6 个索引画出 2 个三角形
-    unsigned int rectIndices[] = {
-        0, 1, 2,   // 第一个三角形
-        0, 2, 3    // 第二个三角形
+    // 12 个三角形 = 6 个面，每个面 2 个三角形
+    unsigned int indices[] = {
+        // 后面 (z = -0.5)
+        0, 1, 2,  2, 3, 0,
+        // 前面 (z = +0.5)
+        4, 5, 6,  6, 7, 4,
+        // 左面 (x = -0.5)
+        0, 3, 7,  7, 4, 0,
+        // 右面 (x = +0.5)
+        1, 5, 6,  6, 2, 1,
+        // 下面 (y = -0.5)
+        0, 4, 5,  5, 1, 0,
+        // 上面 (y = +0.5)
+        3, 2, 6,  6, 7, 3
     };
 
-    unsigned int rectVAO, rectVBO, rectEBO;
-    glGenVertexArrays(1, &rectVAO);
-    glGenBuffers(1, &rectVBO);
-    glGenBuffers(1, &rectEBO);
+    unsigned int VAO, VBO, EBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
 
-    glBindVertexArray(rectVAO);
+    glBindVertexArray(VAO);
 
-    glBindBuffer(GL_ARRAY_BUFFER, rectVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(rectVertices), rectVertices, GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-    // 注意：EBO 的绑定会被 VAO 记住，所以必须在 VAO 激活时绑定
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, rectEBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(rectIndices), rectIndices, GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
-    // 位置属性
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    // 只有位置属性，3 个 float，步长 3*sizeof(float)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-    // 颜色属性
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
-                          (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
 
     glBindVertexArray(0);
 
-    Shader rectShader("src/shaders/rect.vert", "src/shaders/rect.frag");
+    Shader cubeShader("src/shaders/cube.vert", "src/shaders/cube.frag");
 
     // ==================== 渲染循环 ====================
     while (!glfwWindowShouldClose(window))
     {
         processInput(window);
 
+        // 清颜色 + 清深度（深度别忘！）
         glClearColor(0.12f, 0.12f, 0.18f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // 画三角形：用 glDrawArrays（按顺序取顶点）
-        triShader.use();
-        glBindVertexArray(triVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 3);   // 从第 0 个顶点开始，共 3 个
+        cubeShader.use();
 
-        // 画矩形：用 glDrawElements（按 EBO 里的索引取顶点）
-        rectShader.use();
-        glBindVertexArray(rectVAO);
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);  // 6 个索引
+        // ---------- 1. 模型矩阵：绕 y 轴旋转 ----------
+        glm::mat4 model = glm::mat4(1.0f);              // 单位矩阵（什么都不做）
+        float angle = (float)glfwGetTime();             // 随时间递增的角度（弧度）
+        model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
+
+        // ---------- 2. 观察矩阵：相机后退 ----------
+        glm::mat4 view = glm::mat4(1.0f);
+        view = glm::translate(view, glm::vec3(0.0f, 0.0f, -3.0f));
+
+        // ---------- 3. 投影矩阵：透视投影 ----------
+        glm::mat4 projection = glm::perspective(
+            glm::radians(45.0f),
+            (float)SCR_WIDTH / (float)SCR_HEIGHT,
+            0.1f,
+            100.0f);
+
+        // 把三个矩阵传给着色器
+        glUniformMatrix4fv(glGetUniformLocation(cubeShader.ID, "model"),
+                           1, GL_FALSE, glm::value_ptr(model));
+        glUniformMatrix4fv(glGetUniformLocation(cubeShader.ID, "view"),
+                           1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(glGetUniformLocation(cubeShader.ID, "projection"),
+                           1, GL_FALSE, glm::value_ptr(projection));
+
+        // 设置物体颜色（青色）
+        glUniform3f(glGetUniformLocation(cubeShader.ID, "objectColor"),
+                    0.3f, 0.9f, 1.0f);
+
+        // 画立方体：36 个索引 = 12 个三角形
+        glBindVertexArray(VAO);
+        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
 
     // ==================== 清理 ====================
-    glDeleteVertexArrays(1, &triVAO);
-    glDeleteBuffers(1, &triVBO);
-    glDeleteVertexArrays(1, &rectVAO);
-    glDeleteBuffers(1, &rectVBO);
-    glDeleteBuffers(1, &rectEBO);
+    glDeleteVertexArrays(1, &VAO);
+    glDeleteBuffers(1, &VBO);
+    glDeleteBuffers(1, &EBO);
 
     glfwDestroyWindow(window);
     glfwTerminate();

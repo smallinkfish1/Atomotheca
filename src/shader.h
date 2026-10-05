@@ -1,6 +1,7 @@
 // src/shader.h
 // 一个小小的着色器封装：读文件 + 编译 + 链接，帮你省掉重复代码。
 // 刻意写得很简单，方便你读懂每一行。
+
 #ifndef SHADER_H
 #define SHADER_H
 
@@ -53,8 +54,8 @@ inline unsigned int Shader::compileShader(unsigned int type, const std::string& 
     {
         glGetShaderInfoLog(id, 1024, nullptr, infoLog);
         std::cerr << "[着色器编译失败] "
-        << (type == GL_VERTEX_SHADER ? "顶点着色器" : "片段着色器")
-        << "\n" << infoLog << std::endl;
+                  << (type == GL_VERTEX_SHADER ? "顶点着色器" : "片段着色器")
+                  << "\n" << infoLog << std::endl;
     }
     return id;
 }
@@ -86,8 +87,8 @@ inline Shader::Shader(const char* vertexPath, const char* fragmentPath)
     catch (std::ifstream::failure& e)
     {
         std::cerr << "[错误] 着色器文件读取失败: " << e.what()
-        << "\n  vertexPath   = " << vertexPath
-        << "\n  fragmentPath = " << fragmentPath << std::endl;
+                  << "\n  vertexPath   = " << vertexPath
+                  << "\n  fragmentPath = " << fragmentPath << std::endl;
     }
 
     // 2. 编译

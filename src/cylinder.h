@@ -54,7 +54,9 @@ inline void generateCylinder(float radius,
     }
 
     // ---------- 2. 生成索引 ----------
-    // 每对相邻经线构成一个长方形，切成 2 个三角形
+    // 每对相邻经线构成一个长方形，切成 2 个三角形。
+    // ★ 绕序必须为"从圆柱外侧看逆时针"（CCW），配合 glFrontFace(GL_CCW)。
+    //   写反会导致背面剔除剔掉朝外的面，键会"穿透"原子球显示出来。
     for (int i = 0; i < sectorCount; ++i)
     {
         // 第 i 组：上顶点 = i*2，下顶点 = i*2+1
@@ -63,15 +65,15 @@ inline void generateCylinder(float radius,
         unsigned int top1    = (i + 1) * 2;
         unsigned int bottom1 = (i + 1) * 2 + 1;
 
-        // 三角形 1
+        // 三角形 1：top0 → top1 → bottom0
         outIndices.push_back(top0);
-        outIndices.push_back(bottom0);
         outIndices.push_back(top1);
+        outIndices.push_back(bottom0);
 
-        // 三角形 2
+        // 三角形 2：top1 → bottom1 → bottom0
         outIndices.push_back(top1);
-        outIndices.push_back(bottom0);
         outIndices.push_back(bottom1);
+        outIndices.push_back(bottom0);
     }
 }
 

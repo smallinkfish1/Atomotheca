@@ -82,16 +82,22 @@ inline void generateSphere(float radius,
             unsigned int k1 = i       * (sectorCount + 1) + j;
             unsigned int k2 = (i + 1) * (sectorCount + 1) + j;
 
-            // 切成两个三角形，注意绕序保持逆时针（配合背面剔除）
-            // 三角形 1：k1, k2, k1+1
+            // 切成两个三角形。
+            // ★ 绕序必须为"从球外看逆时针"（CCW），才能配合 glFrontFace(GL_CCW)
+            //   和背面剔除正常工作。
+            //   如果写反了，被剔除的会是"朝外的面"，于是我们只能看到球的
+            //   内壁（远侧表面），导致：
+            //     1) 球体没有任何明暗渐变和高光（内壁法线背对相机）
+            //     2) 深度关系错乱，后面的物体会"穿透"到前面来
+            // 三角形 1：k1 → k1+1 → k2
             outIndices.push_back(k1);
-            outIndices.push_back(k2);
             outIndices.push_back(k1 + 1);
+            outIndices.push_back(k2);
 
-            // 三角形 2：k1+1, k2, k2+1
+            // 三角形 2：k1+1 → k2+1 → k2
             outIndices.push_back(k1 + 1);
-            outIndices.push_back(k2);
             outIndices.push_back(k2 + 1);
+            outIndices.push_back(k2);
         }
     }
 }

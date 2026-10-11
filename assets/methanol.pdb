@@ -1,0 +1,15 @@
+COMPND    METHANOL
+AUTHOR    GENERATED-BY-MOLECULE-VIEWER
+ATOM      1 C1   UNL A   1       0.000   0.000   0.000  1.00  0.00           C
+ATOM      2 O2   UNL A   1       1.430   0.000   0.000  1.00  0.00           O
+ATOM      3 H3   UNL A   1      -0.363   1.028   0.000  1.00  0.00           H
+ATOM      4 H4   UNL A   1      -0.363  -0.514   0.890  1.00  0.00           H
+ATOM      5 H5   UNL A   1      -0.363  -0.514  -0.890  1.00  0.00           H
+ATOM      6 H6   UNL A   1       1.735  -0.910   0.000  1.00  0.00           H
+CONECT    1    2    3    4    5
+CONECT    2    1    6
+CONECT    3    1
+CONECT    4    1
+CONECT    5    1
+CONECT    6    2
+END

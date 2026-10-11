@@ -1,6 +1,6 @@
-# Molecule Viewer（分子可视化）
+# Molecule Viewer（分子可视化）（Work in Progress）
 
-用 C++ + OpenGL 实现的有机物分子 3D 可视化程序，支持**球棍模型**与**空间填充模型**切换。
+用 C++ + OpenGL 实现的有机物分子 3D 可视化程序，支持**球棍模型**与**空间填充模型**切换。（正在开发中，最终功能尽情期待）
 
 ## 功能规划
 - [x] 第 1 天：GLFW 空窗口
@@ -12,7 +12,7 @@
 - [x] 第 7 天：球棍模型（CH₄）
 - [x] 第 8 天：空间填充模型与模式切换
 - [x] 第 9 天：元素配色与 Blinn-Phong 光照
-- [ ] 第 10 天：.mol/.pdb 解析器
+- [x] 第 10 天：.mol/.pdb 解析器
 - [ ] 第 11 天：Dear ImGui 控制面板
 - [ ] 第 12 天：原子拾取与键长键角
 - [ ] 第 13 天：跨平台构建与开源发布
@@ -36,6 +36,7 @@ cmake --build build -j
 ```
 
 ## 技术要点
+- **新增"支持的分子格式"和"如何加载自己的分子"小节**
 - 球体采用 **UV 球（经纬球）**&#8203; 参数化生成，可通过分段数控制精度
 - 光照采用 **Blinn-Phong** 的简化版（环境光 + 漫反射），第 9 天补全镜面高光
 - 甲烷分子模型：甲烷为正四面体构型，键角 109.5°（碳 sp³ 杂化）
@@ -45,5 +46,16 @@ cmake --build build -j
 
 ## 按键
 - **空格键**：切换球棍模型 / 空间填充模型`
+
+## 分子实例
+
+```bash
+./build/molecule_viewer                      # 默认加载甲烷
+./build/molecule_viewer assets/ethanol.mol   # 乙醇
+./build/molecule_viewer assets/benzene.mol   # 苯
+./build/molecule_viewer assets/water.mol     # 水
+./build/molecule_viewer assets/benzene.pdb   # 用 PDB 格式加载苯
+```
+
 
 

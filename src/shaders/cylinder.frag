@@ -1,7 +1,7 @@
 #version 330 core
 
-// 第 9 天：与 sphere.frag 完全一致的 Blinn-Phong 光照。
-// 化学键也用同一套光照，保证球和棍的质感统一。
+// 第 11 天：与 sphere.frag 完全一致的 Blinn-Phong 光照，
+// 光照参数改为 uniform，可由 ImGui 面板实时调节。
 
 in vec3 FragPos;
 in vec3 Normal;
@@ -18,12 +18,16 @@ uniform vec3 fillLightColor;
 
 uniform vec3 viewPos;
 
+// 光照参数（由 UI 控制）
+uniform float ambientStrength;
+uniform float specularStrength;
+uniform float shininess;
+
 void main()
 {
     vec3 norm = normalize(Normal);
 
     // 1. 环境光
-    float ambientStrength = 0.35;
     vec3 ambient = ambientStrength * lightColor;
 
     // 2. 主光漫反射
@@ -37,9 +41,6 @@ void main()
     vec3  fillDiffuse = fillDiff * fillLightColor;
 
     // 4. 镜面高光（Blinn-Phong）
-    float specularStrength = 0.55f;
-    float shininess        = 64.0f;
-
     vec3 viewDir    = normalize(viewPos - FragPos);
     vec3 halfwayDir = normalize(lightDir + viewDir);
     float spec      = pow(max(dot(norm, halfwayDir), 0.0), shininess);

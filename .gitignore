@@ -1,19 +1,35 @@
-# 构建产物
+# ===== 构建产物 =====
 build/
 cmake-build-*/
 
-# 编辑器
+# ===== 第三方库（由使用者自行 clone，不进仓库）=====
+# ImGui 是 clone 下来的，不属于本项目代码
+external/imgui/
+
+# glad 不要加！那是第 2 天我们自己放进仓库的文件，必须提交
+
+# ===== 编辑器 / IDE =====
 .vscode/
 .idea/
 *.swp
 *~
 
-# 编译中间文件
+# ===== 编译中间文件 =====
 *.o
 *.obj
+*.a
+*.so
 
-# 可执行文件
+# ===== 可执行文件 =====
 molecule_viewer
 
-# 系统文件
+# ===== CMake 生成的辅助文件 =====
+compile_commands.json
+
+# ===== ImGui 的窗口布局缓存 =====
+# （虽然我们在代码里禁用了，但加上无害）
+imgui.ini
+
+# ===== 系统文件 =====
 .DS_Store
+Thumbs.db

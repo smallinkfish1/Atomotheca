@@ -1,4 +1,4 @@
-# Molecule Viewer（分子可视化）
+# Atomotheca
 
 用 C++ + OpenGL 实现的有机物分子 3D 可视化程序，支持**球棍模型**与**空间填充模型**切换，可从 `.mol` / `.pdb` 文件加载分子，并支持点击原子查看键长与键角。
 
@@ -40,7 +40,7 @@ git clone --depth 1 --branch v1.90.9 https://github.com/ocornut/imgui.git extern
 ### Linux（Debian / Ubuntu）
 
 ```bash
-git clone https://github.com/smallinkfish1/Cpp-OpenGL-molecule-viewer.git
+git clone https://github.com/smallinkfish1/Atomotheca.git
 cd Cpp-OpenGL-molecule-viewer
 
 sudo apt update

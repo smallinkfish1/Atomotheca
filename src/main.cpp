@@ -1,10 +1,15 @@
 // src/main.cpp
-// 第 12 天：原子拾取 + 标签 + 键长 / 键角信息。
-//   - 左键单击原子 → 选中并高亮
-//   - Shift + 左键 → 追加 / 移除第二个原子（最多两个）
-//   - 点击空白处 → 取消选择
-//   - 选中原子在屏幕上显示标签
-//   - 面板显示元素、坐标、键长、键角
+// 第 13 天：工程化收尾。
+//   - 资源路径自适配：不再要求"必须在项目根目录运行"
+//   - 命令行支持 --help / --version
+//   - 版本号由 CMake 注入（APP_VERSION 宏）
+//
+// 前 12 天的功能保持不变：球棍/填充切换、轨道相机、CPK 配色、
+// Blinn-Phong 光照、.mol/.pdb 解析、ImGui 面板、射线拾取与键长键角测量。
+
+#ifndef APP_VERSION
+#  define APP_VERSION "0.13.0-dev"
+#endif
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -14,7 +19,8 @@
 #include "cylinder.h"
 #include "molecule.h"
 #include "molfile.h"
-#include "picking.h"      // 今天的核心：屏幕 → 3D 射线
+#include "picking.h"      // 第 12 天：屏幕 → 3D 射线
+#include "path_utils.h"   // 第 13 天：跨平台资源路径解析
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -665,7 +671,50 @@ static void DrawAtomLabels(const Molecule& molecule,
 
 int main(int argc, char** argv)
 {
-    std::string molPath = (argc > 1) ? argv[1] : "assets/methane.mol";
+    // ==================== 命令行参数 ====================
+    std::string userPath = "assets/methane.mol";
+
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string arg = argv[i];
+
+        if (arg == "-h" || arg == "--help")
+        {
+            std::cout
+                << "Molecule Viewer v" << APP_VERSION << "\n\n"
+                << "用法: molecule_viewer [分子文件]\n\n"
+                << "  [分子文件]   支持 .mol (V2000) 和 .pdb\n"
+                << "               省略时默认加载 assets/methane.mol\n\n"
+                << "操作:\n"
+                << "  左键拖拽     旋转视角\n"
+                << "  左键单击     选中原子\n"
+                << "  Shift+单击   追加选中第二个原子\n"
+                << "  滚轮         缩放\n"
+                << "  空格         切换 球棍 / 空间填充 模型\n"
+                << "  Tab          显示 / 隐藏控制面板\n"
+                << "  Esc          取消选择；没有选中时退出\n";
+            return 0;
+        }
+        if (arg == "-v" || arg == "--version")
+        {
+            std::cout << "Molecule Viewer v" << APP_VERSION << "\n";
+            return 0;
+        }
+
+        userPath = arg;
+    }
+
+    // ==================== 资源路径解析 ====================
+    // 依次尝试：工作目录 → 可执行文件目录 → 可执行文件上级目录
+    // 这样在项目根目录、build/ 目录、甚至别处用绝对路径调用，都能找到文件
+    std::string molPath = pathutil::resolveResource(userPath);
+    if (molPath.empty())
+    {
+        std::cerr << "[错误] 找不到分子文件: " << userPath << "\n"
+                  << "       当前工作目录: " << std::filesystem::current_path() << "\n"
+                  << "       试试: ./molecule_viewer assets/methane.mol\n";
+        return -1;
+    }
 
     std::string fileName = molPath;
     {
@@ -712,6 +761,7 @@ int main(int argc, char** argv)
         glfwTerminate();
         return -1;
     }
+    std::cout << "Molecule Viewer v" << APP_VERSION << std::endl;
     std::cout << "OpenGL: " << glGetString(GL_VERSION)
               << " | " << glGetString(GL_RENDERER) << std::endl;
 
@@ -836,8 +886,28 @@ int main(int argc, char** argv)
     glBindVertexArray(0);
 
     // ==================== 着色器 ====================
-    Shader sphereShader("src/shaders/sphere.vert", "src/shaders/sphere.frag");
-    Shader cylinderShader("src/shaders/cylinder.vert", "src/shaders/cylinder.frag");
+    // 着色器同样走路径解析，这样从 build/ 里运行也能找到
+    std::string svPath = pathutil::resolveResource("src/shaders/sphere.vert");
+    std::string sfPath = pathutil::resolveResource("src/shaders/sphere.frag");
+    std::string cvPath = pathutil::resolveResource("src/shaders/cylinder.vert");
+    std::string cfPath = pathutil::resolveResource("src/shaders/cylinder.frag");
+
+    if (svPath.empty() || sfPath.empty() || cvPath.empty() || cfPath.empty())
+    {
+        std::cerr << "[错误] 找不到着色器文件。\n"
+                  << "       请确认 src/shaders/ 目录存在。\n"
+                  << "       当前工作目录: " << std::filesystem::current_path() << "\n";
+
+        ImGui_ImplOpenGL3_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return -1;
+    }
+
+    Shader sphereShader(svPath.c_str(), sfPath.c_str());
+    Shader cylinderShader(cvPath.c_str(), cfPath.c_str());
 
     GLint s_model      = glGetUniformLocation(sphereShader.ID, "model");
     GLint s_view       = glGetUniformLocation(sphereShader.ID, "view");

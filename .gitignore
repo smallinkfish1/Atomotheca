@@ -1,35 +1,60 @@
-# ===== 构建产物 =====
+# ============================================================
+#  Molecule Viewer — Git 忽略规则
+# ============================================================
+
+# ---------- 构建产物 ----------
 build/
 cmake-build-*/
+out/
+install/
 
-# ===== 第三方库（由使用者自行 clone，不进仓库）=====
-# ImGui 是 clone 下来的，不属于本项目代码
+# ---------- 第三方库（由使用者自行 clone）----------
+# ImGui 源码不在仓库中，靠 README 里的 clone 命令获取
 external/imgui/
 
-# glad 不要加！那是第 2 天我们自己放进仓库的文件，必须提交
+# 注意：external/glad/ 不要加！
+#       那是本项目自己的文件（第 2 天放进仓库），必须提交，
+#       否则别人 clone 下来编译不了。
 
-# ===== 编辑器 / IDE =====
+# ---------- 编辑器 / IDE ----------
 .vscode/
 .idea/
 *.swp
 *~
+*.kate-swp
 
-# ===== 编译中间文件 =====
+# ---------- 编译中间文件 ----------
 *.o
 *.obj
 *.a
 *.so
+*.dylib
+*.lib
+*.exp
+*.pdb
 
-# ===== 可执行文件 =====
+# ---------- 可执行文件 ----------
 molecule_viewer
+molecule_viewer.exe
+*.app
 
-# ===== CMake 生成的辅助文件 =====
+# ---------- CMake 生成的文件 ----------
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
 compile_commands.json
+Makefile
+*.ninja
 
-# ===== ImGui 的窗口布局缓存 =====
-# （虽然我们在代码里禁用了，但加上无害）
+# ---------- ImGui 窗口布局缓存 ----------
+# （代码里已通过 io.IniFilename = nullptr 禁用，这里再加一层保险）
 imgui.ini
 
-# ===== 系统文件 =====
+# ---------- 系统文件 ----------
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# ---------- 临时文件 ----------
+*.log
+*.tmp

@@ -190,6 +190,12 @@ endif()
 # ============================================================
 if(MSVC)
     target_compile_options(molecule_viewer PRIVATE /W4 /utf-8)
+
+    # NOMINMAX：禁止 <windows.h> 定义 min/max 宏。
+    # 否则 main.cpp 里的 std::max(1.0f, app.molR) 会被宏展开成语法错误
+    # （报 C2589 / "illegal token on right side of '::'"）。
+    # path_utils.h 里也定义了一份，这里再加一道保险，双保险无副作用。
+    target_compile_definitions(molecule_viewer PRIVATE NOMINMAX)
 else()
     target_compile_options(molecule_viewer PRIVATE -Wall -Wextra)
 endif()

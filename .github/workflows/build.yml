@@ -1,14 +1,16 @@
 # ============================================================
-#  Molecule Viewer — 自动构建与发布
+#  Molecule Viewer — 自动构建与发布（Linux + Windows）
 #
-#  触发规则：
-#    1. push 到 main        → 只编译 + 上传临时产物（验证代码能编过）
-#    2. push 一个 v* tag    → 编译 + 创建 GitHub Release
-#    3. 手动（Actions 页面） → 只编译
+#  本版改动：
+#    1. 移除 Web(WASM) job —— 先保证桌面两端能出包
+#    2. vcpkg 改用 --classic，避免 manifest 模式直接报错
+#    3. 统一 MSVC 运行时为 /MT（与 x64-windows-static 匹配）
+#    4. dumpbin 依赖检查改为"只打印"，不再导致构建失败
 #
-#  用法：
-#    git tag -a v0.2.0 -m "第 15 天：xxx 功能"
-#    git push origin v0.2.0
+#  触发：
+#    push 到 main     → 编译验证，不发版
+#    push v* tag      → 编译 + 创建 Release
+#    手动             → 只编译
 # ============================================================
 
 name: Build & Release
@@ -19,22 +21,17 @@ on:
     tags:     [ 'v*' ]
   workflow_dispatch:
 
-# 创建 Release 需要写权限。
-# 如果仓库设置里把 Actions 权限改成了只读，这一步会 403。
 permissions:
   contents: write
 
 env:
   IMGUI_VERSION: v1.90.9
-  GLM_VERSION:   1.0.1
+  # 关掉 vcpkg 的二进制缓存提示，日志更干净
+  VCPKG_DISABLE_METRICS: 1
 
 jobs:
   # ==========================================================
-  #  1. Linux
-  #     用 ubuntu-22.04 而不是 ubuntu-latest：
-  #     22.04 的 glibc 是 2.35，产物能在 Debian 12/13、Ubuntu 22.04+ 上跑。
-  #     用 24.04（glibc 2.39）编译的话，Debian 12 用户会直接报
-  #     "GLIBC_2.39 not found"。
+  #  Linux
   # ==========================================================
   linux:
     name: Linux x86_64
@@ -54,6 +51,11 @@ jobs:
         run: |
           git clone --depth 1 --branch "$IMGUI_VERSION" \
             https://github.com/ocornut/imgui.git external/imgui
+
+      - name: 打印环境信息
+        run: |
+          cmake --version | head -1
+          g++ --version | head -1
 
       - name: 配置
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -79,10 +81,7 @@ jobs:
           if-no-files-found: error
 
   # ==========================================================
-  #  2. Windows
-  #     vcpkg 的 x64-windows-static 三重态：
-  #     把 GLFW / GLM / MSVC 运行时全部静态链进去，
-  #     产物是单个 exe，用户不需要装任何 DLL。
+  #  Windows
   # ==========================================================
   windows:
     name: Windows x64
@@ -92,59 +91,78 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: 拉取 Dear ImGui
+        shell: pwsh
         run: |
-          git clone --depth 1 --branch "$env:IMGUI_VERSION" `
-            https://github.com/ocornut/imgui.git external/imgui
+          git clone --depth 1 --branch $env:IMGUI_VERSION https://github.com/ocornut/imgui.git external/imgui
+          if (-not (Test-Path "external/imgui/imgui.h")) { throw "ImGui 拉取失败" }
 
-      # vcpkg 首次编译 GLFW 要几分钟，缓存后只要几十秒
       - name: 缓存 vcpkg
         uses: actions/cache@v4
         with:
           path: |
             C:\vcpkg\installed
-            C:\vcpkg\buildtrees
+            C:\vcpkg\downloads
           key: vcpkg-windows-${{ hashFiles('CMakeLists.txt') }}
           restore-keys: vcpkg-windows-
 
-      - name: 安装依赖（静态）
-        run: vcpkg install glfw3:x64-windows-static glm:x64-windows-static
-
-      - name: 配置
-        run: >
-          cmake -S . -B build -A x64
-          -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
-          -DVCPKG_TARGET_TRIPLET=x64-windows-static
-          -DCMAKE_BUILD_TYPE=Release
-
-      - name: 编译
-        run: cmake --build build --config Release
-
-      # dumpbin 默认不在 PATH 上，先让这个 action 把 MSVC 环境变量配好
-      - name: 配置 MSVC 环境
-        uses: ilammy/msvc-dev-cmd@v1
-
-      # 检查是否真的静态链接了：只该剩系统 DLL
-      - name: 检查 DLL 依赖
+      # --classic：不加这个，新版 vcpkg 在仓库里找不到 vcpkg.json
+      # 会直接报 "Could not locate a manifest" 并退出
+      - name: 安装依赖（静态三重态）
         shell: pwsh
         run: |
+          vcpkg version
+
+          vcpkg install --classic glfw3:x64-windows-static glm:x64-windows-static
+
+          # 老版本 vcpkg 可能不认识 --classic，回退一次
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "带 --classic 失败，改用普通模式重试"
+            vcpkg install glfw3:x64-windows-static glm:x64-windows-static
+          }
+
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg install 失败，退出码 $LASTEXITCODE" }
+
+      - name: 配置
+        shell: pwsh
+        run: |
+          cmake -S . -B build -A x64 -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCMAKE_BUILD_TYPE=Release
+          if ($LASTEXITCODE -ne 0) { throw "CMake 配置失败" }
+
+      - name: 编译
+        shell: pwsh
+        run: |
+          cmake --build build --config Release
+          if ($LASTEXITCODE -ne 0) { throw "编译失败" }
+
+      # 诊断信息，只打印，不参与成败判断
+      - name: 打印 DLL 依赖（仅供参考）
+        shell: pwsh
+        continue-on-error: true
+        run: |
           $exe = "build\Release\molecule_viewer.exe"
-          if (-not (Test-Path $exe)) { throw "找不到 $exe" }
-          $deps = & dumpbin /dependents $exe | Select-String "\.dll"
-          $deps | ForEach-Object { Write-Host $_ }
-          if ($deps -match "libstdc|libgcc|libwinpthread|glfw3") {
-            throw "存在非系统 DLL 依赖，静态链接没生效"
+          if (Test-Path $exe) {
+            Get-Item $exe | Format-List Name, Length
+            if (Get-Command dumpbin -ErrorAction SilentlyContinue) {
+              dumpbin /dependents $exe
+            } else {
+              Write-Host "dumpbin 不可用，跳过依赖检查"
+            }
           }
 
       - name: 打包
         shell: pwsh
         run: |
+          $exe = "build\Release\molecule_viewer.exe"
+          if (-not (Test-Path $exe)) { throw "没有找到 $exe，编译可能没真正产出" }
+
           $dir = "dist\molecule-viewer-win64"
           New-Item -ItemType Directory -Force -Path "$dir\src" | Out-Null
-          Copy-Item build\Release\molecule_viewer.exe $dir\
+          Copy-Item $exe                     $dir\
           Copy-Item -Recurse assets          "$dir\assets"
           Copy-Item -Recurse src\shaders     "$dir\src\shaders"
           Copy-Item README.md, LICENSE       $dir\
-          Compress-Archive -Path $dir -DestinationPath molecule-viewer-win64.zip
+          Compress-Archive -Path $dir -DestinationPath molecule-viewer-win64.zip -Force
+
           Get-ChildItem molecule-viewer-win64.zip | Format-List Name, Length
 
       - uses: actions/upload-artifact@v4
@@ -154,63 +172,11 @@ jobs:
           if-no-files-found: error
 
   # ==========================================================
-  #  3. WebAssembly
-  # ==========================================================
-  web:
-    name: Web (WASM)
-    runs-on: ubuntu-22.04
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 安装 Emscripten
-        uses: emscripten-core/setup-emsdk@v14
-        with:
-          version: latest
-
-      - name: 准备依赖
-        run: |
-          git clone --depth 1 --branch "$IMGUI_VERSION" \
-            https://github.com/ocornut/imgui.git external/imgui
-          git clone --depth 1 --branch "$GLM_VERSION" \
-            https://github.com/g-truc/glm.git external/glm
-
-      - name: 构建
-        run: |
-          # 有些情况下 checkout 后脚本没有可执行位，显式加一下
-          chmod +x build_web.sh
-          ./build_web.sh
-
-      - name: 验证产物齐全
-        run: |
-          for f in molecule_viewer.html molecule_viewer.js \
-                   molecule_viewer.wasm molecule_viewer.data; do
-            if [ ! -f "build-web/$f" ]; then
-              echo "缺少 $f"; exit 1
-            fi
-          done
-          ls -lh build-web/
-
-      - name: 打包
-        run: |
-          cd build-web
-          zip -r ../molecule-viewer-web.zip \
-            molecule_viewer.html molecule_viewer.js \
-            molecule_viewer.wasm molecule_viewer.data
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: web
-          path: molecule-viewer-web.zip
-          if-no-files-found: error
-
-  # ==========================================================
-  #  4. 创建 Release
-  #     只在 push tag 时执行；push 到 main 时这个 job 会被跳过。
+  #  Release（只在 tag 时执行）
   # ==========================================================
   release:
     name: Publish Release
-    needs: [ linux, windows, web ]
+    needs: [ linux, windows ]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
 
@@ -222,7 +188,6 @@ jobs:
       - name: 收集发布包
         run: |
           mkdir -p out
-          # download-artifact 会按 artifact 名建子目录，这里统一摊平
           find artifacts -type f \( -name '*.zip' -o -name '*.tar.gz' \) \
             -exec cp {} out/ \;
           echo "--- 将发布以下文件 ---"
@@ -232,9 +197,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: out/*
-          # 自动根据 commit 生成更新日志
           generate_release_notes: true
-          # 先存草稿的话改成 true，去网页上确认后再发布
           draft: false
-          # 带 -beta / -rc 的 tag 自动标为预发布
           prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}

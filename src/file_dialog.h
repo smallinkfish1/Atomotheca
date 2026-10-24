@@ -61,12 +61,15 @@ inline std::string wideToUtf8(const wchar_t* w)
     if (w == nullptr || w[0] == L'\0')
         return std::string();
 
+    // WideCharToMultiByte 是 8 个参数（后两个是默认字符与使用标记）
     int need = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
     if (need <= 0)
         return std::string();
 
-    std::string out(static_cast<size_t>(need - 1), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, w, -1, &out[0], need, nullptr, nullptr);
+    // need 已包含结尾的 '\0'，所以按 need 分配，写完再把 '\0' 去掉
+    std::string out(static_cast<size_t>(need), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w, -1, out.data(), need, nullptr, nullptr);
+    out.pop_back();
     return out;
 }
 
@@ -75,12 +78,15 @@ inline std::wstring utf8ToWide(const std::string& s)
     if (s.empty())
         return std::wstring();
 
+    // 注意：MultiByteToWideChar 只有 6 个参数，
+    // 比 WideCharToMultiByte 少两个（没有默认字符相关参数）。
     int need = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
     if (need <= 0)
         return std::wstring();
 
-    std::wstring out(static_cast<size_t>(need - 1), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &out[0], need, nullptr, nullptr);
+    std::wstring out(static_cast<size_t>(need), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, out.data(), need);
+    out.pop_back();
     return out;
 }
 

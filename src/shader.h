@@ -1,43 +1,94 @@
 // src/shader.h
-// 一个小小的着色器封装：读文件 + 编译 + 链接，帮你省掉重复代码。
-// 刻意写得很简单，方便你读懂每一行。
+// 着色器封装：读文件 + 编译 + 链接。
+//
+// 第 14 天：增加 Web（WebGL2 / GLSL ES 3.00）适配。
+//   - 桌面：GLAD + #version 330 core
+//   - Web ：Emscripten 自带 GLES3，着色器需改为 #version 300 es，
+//           且片段着色器必须声明浮点精度
 
 #ifndef SHADER_H
 #define SHADER_H
 
-#include <glad/glad.h>
+// ---------- 平台相关的 OpenGL 头 ----------
+#ifdef __EMSCRIPTEN__
+#  include <GLES3/gl3.h>          // Emscripten 提供的 GLES3（映射到 WebGL2）
+#else
+#  include <glad/glad.h>          // 桌面：用 GLAD 加载函数指针
+#endif
+
 #include <GLFW/glfw3.h>
 
-#include <string>
 #include <fstream>
-#include <sstream>
 #include <iostream>
+#include <sstream>
+#include <string>
 
 class Shader
 {
 public:
-    // 着色器程序的 OpenGL ID
     unsigned int ID = 0;
 
-    // 用两个文件路径构造并编译链接
     Shader(const char* vertexPath, const char* fragmentPath);
-
-    // 激活这个着色器程序（画东西之前调用）
     void use() const;
-
-    // 析构时自动删除 GPU 上的程序对象，避免泄漏
     ~Shader();
 
-    // 禁止拷贝，避免同一个程序被删两次
     Shader(const Shader&)            = delete;
     Shader& operator=(const Shader&) = delete;
 
 private:
-    // 编译单个着色器并返回其 ID
     static unsigned int compileShader(unsigned int type, const std::string& source);
+
+    // 把桌面版 GLSL 转换成 WebGL2 能用的 GLSL ES 3.00
+    static std::string adaptGLSL(const std::string& source, bool isFragment);
 };
 
-// ---------- 以下是实现（故意放在头文件里，方便你一处查看） ----------
+// ============================================================
+// GLSL 版本适配
+//
+// 桌面：  #version 330 core
+// WebGL2：#version 300 es  + 片段着色器需要 "precision highp float;"
+//
+// 我们的着色器代码本身是兼容的（都用 in/out、没有用废弃语法），
+// 所以只需要改版本行、补精度声明。
+// ============================================================
+inline std::string Shader::adaptGLSL(const std::string& source, bool isFragment)
+{
+#ifdef __EMSCRIPTEN__
+    std::string s = source;
+
+    // ---- 1. 替换版本行 ----
+    // "#version 330 core" 共 17 个字符
+    const std::string oldVer = "#version 330 core";
+    const std::string newVer = "#version 300 es";
+
+    size_t pos = s.find(oldVer);
+    if (pos != std::string::npos)
+        s.replace(pos, oldVer.size(), newVer);
+
+    // ---- 2. 片段着色器补精度声明 ----
+    // GLSL ES 规定：片段着色器必须显式声明 float 精度，否则编译报错
+    if (isFragment)
+    {
+        size_t vpos = s.find("#version 300 es");
+        if (vpos != std::string::npos)
+        {
+            size_t lineEnd = s.find('\n', vpos);
+            if (lineEnd != std::string::npos)
+                s.insert(lineEnd + 1, "\nprecision highp float;\n");
+        }
+        else
+        {
+            // 极端情况：文件里没有版本行，直接插在开头
+            s = "precision highp float;\n" + s;
+        }
+    }
+
+    return s;
+#else
+    (void)isFragment;
+    return source;
+#endif
+}
 
 inline unsigned int Shader::compileShader(unsigned int type, const std::string& source)
 {
@@ -46,7 +97,6 @@ inline unsigned int Shader::compileShader(unsigned int type, const std::string& 
     glShaderSource(id, 1, &src, nullptr);
     glCompileShader(id);
 
-    // 检查编译是否成功，失败时打印日志（新手排错最重要的信息）
     int success = 0;
     char infoLog[1024];
     glGetShaderiv(id, GL_COMPILE_STATUS, &success);
@@ -62,11 +112,9 @@ inline unsigned int Shader::compileShader(unsigned int type, const std::string& 
 
 inline Shader::Shader(const char* vertexPath, const char* fragmentPath)
 {
-    // 1. 从文件读取源码
     std::string vertexCode, fragmentCode;
     std::ifstream vFile, fFile;
 
-    // 打开失败时抛异常，避免静默失败（新手最怕"没报错但不对"）
     vFile.exceptions(std::ifstream::failbit | std::ifstream::badbit);
     fFile.exceptions(std::ifstream::failbit | std::ifstream::badbit);
     try
@@ -91,17 +139,18 @@ inline Shader::Shader(const char* vertexPath, const char* fragmentPath)
                   << "\n  fragmentPath = " << fragmentPath << std::endl;
     }
 
-    // 2. 编译
+    // ★ 第 14 天：按平台适配 GLSL 版本
+    vertexCode   = adaptGLSL(vertexCode,   false);
+    fragmentCode = adaptGLSL(fragmentCode, true);
+
     unsigned int vertex   = compileShader(GL_VERTEX_SHADER,   vertexCode);
     unsigned int fragment = compileShader(GL_FRAGMENT_SHADER, fragmentCode);
 
-    // 3. 链接成一个程序
     ID = glCreateProgram();
     glAttachShader(ID, vertex);
     glAttachShader(ID, fragment);
     glLinkProgram(ID);
 
-    // 检查链接
     int success = 0;
     char infoLog[1024];
     glGetProgramiv(ID, GL_LINK_STATUS, &success);
@@ -111,7 +160,6 @@ inline Shader::Shader(const char* vertexPath, const char* fragmentPath)
         std::cerr << "[着色器链接失败]\n" << infoLog << std::endl;
     }
 
-    // 4. 链接完就可以删掉单独的着色器对象了（程序已经持有它们）
     glDeleteShader(vertex);
     glDeleteShader(fragment);
 }

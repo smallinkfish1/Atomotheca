@@ -1,17 +1,12 @@
 // src/path_utils.h
-// 第 13 天：跨平台资源路径解析。
+// 跨平台资源路径解析。
 //
-// 解决的问题：
-//   前 12 天，着色器和分子文件都用相对路径（"src/shaders/xxx.vert"、"assets/xxx.mol"），
-//   所以**必须在项目根目录运行**。一旦 cd 到 build/ 里执行，就找不到文件。
+// 桌面（第 13 天）：
+//   依次尝试「工作目录 → 可执行文件目录 → 可执行文件上级目录」
 //
-// 解决方案：
-//   按顺序尝试三个位置，找到就用：
-//     1) 当前工作目录（项目根目录运行时）
-//     2) 可执行文件所在目录（从 build/ 里直接运行时，资源已被 CMake 复制过去）
-//     3) 可执行文件所在目录的上一级（build/ 的父目录，即项目根）
-//
-// 这样无论从哪里启动，都能正确找到资源。
+// Web（第 14 天）：
+//   资源已经被 Emscripten 用 --preload-file 打包进虚拟文件系统，
+//   路径固定就是 "assets/xxx.mol"，直接返回即可，不需要查找。
 
 #ifndef PATH_UTILS_H
 #define PATH_UTILS_H
@@ -20,13 +15,20 @@
 #include <string>
 #include <system_error>
 
-#if defined(_WIN32)
-#  define WIN32_LEAN_AND_MEAN
-#  include <windows.h>
-#elif defined(__APPLE__)
-#  include <mach-o/dyld.h>
-#else
-#  include <unistd.h>
+#ifndef __EMSCRIPTEN__
+#  if defined(_WIN32)
+#    define WIN32_LEAN_AND_MEAN
+// NOMINMAX 必须定义：否则 <windows.h> 会定义 min/max 宏，
+// 把 main.cpp 里的 std::max(1.0f, app.molR) 展开成语法错误。
+#    ifndef NOMINMAX
+#      define NOMINMAX
+#    endif
+#    include <windows.h>
+#  elif defined(__APPLE__)
+#    include <mach-o/dyld.h>
+#  else
+#    include <unistd.h>
+#  endif
 #endif
 
 namespace pathutil
@@ -35,13 +37,13 @@ namespace pathutil
 namespace fs = std::filesystem;
 
 // ============================================================
-// 取可执行文件所在目录
-// 三个平台的做法完全不同，所以要用宏分开写
+// 取可执行文件所在目录（仅桌面需要；Web 上返回空）
 // ============================================================
 inline fs::path executableDir()
 {
-#if defined(_WIN32)
-    // Windows：GetModuleFileNameW 返回当前进程的 exe 路径
+#if defined(__EMSCRIPTEN__)
+    return {};          // 浏览器里没有"可执行文件"这个概念
+#elif defined(_WIN32)
     wchar_t buf[MAX_PATH];
     DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
     if (n == 0 || n >= MAX_PATH)
@@ -49,17 +51,15 @@ inline fs::path executableDir()
     return fs::path(buf).parent_path();
 
 #elif defined(__APPLE__)
-    // macOS：_NSGetExecutablePath 需要两段式调用（先问长度再取）
     char buf[4096];
     uint32_t size = sizeof(buf);
     if (_NSGetExecutablePath(buf, &size) != 0)
         return {};
     std::error_code ec;
-    fs::path p = fs::canonical(buf, ec);   // 解析符号链接和相对路径
+    fs::path p = fs::canonical(buf, ec);
     return ec ? fs::path(buf).parent_path() : p.parent_path();
 
 #else
-    // Linux：读 /proc/self/exe 这个特殊符号链接
     std::error_code ec;
     fs::path p = fs::read_symlink("/proc/self/exe", ec);
     if (ec)
@@ -70,20 +70,20 @@ inline fs::path executableDir()
 
 // ============================================================
 // 解析资源路径
-//
-// 参数 relative 可以是相对路径，也可以是绝对路径。
-// 返回实际存在的路径；全都找不到时返回空字符串。
 // ============================================================
 inline std::string resolveResource(const std::string& relative)
 {
+#if defined(__EMSCRIPTEN__)
+    // Web：虚拟文件系统里路径是固定的，直接返回
+    return relative;
+#else
     std::error_code ec;
 
-    // ---------- 1. 当前工作目录 ----------
-    // 这一条覆盖"在项目根目录运行"的常见情况，也处理绝对路径
+    // 1. 当前工作目录（也覆盖绝对路径）
     if (fs::exists(relative, ec))
         return relative;
 
-    // ---------- 2 & 3. 可执行文件目录及其上一级 ----------
+    // 2 & 3. 可执行文件目录及其上一级
     fs::path exeDir = executableDir();
     if (!exeDir.empty())
     {
@@ -96,7 +96,8 @@ inline std::string resolveResource(const std::string& relative)
             return parent.string();
     }
 
-    return {};   // 没找到
+    return {};
+#endif
 }
 
 } // namespace pathutil

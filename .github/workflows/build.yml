@@ -1,11 +1,10 @@
 # ============================================================
-#  Molecule Viewer — 自动构建与发布（Linux + Windows）
+#  Molecule Viewer — 自动构建与发布（Linux + Windows MSVC + Windows MinGW）
 #
 #  本版改动：
-#    1. 移除 Web(WASM) job —— 先保证桌面两端能出包
-#    2. vcpkg 改用 --classic，避免 manifest 模式直接报错
-#    3. 统一 MSVC 运行时为 /MT（与 x64-windows-static 匹配）
-#    4. dumpbin 依赖检查改为"只打印"，不再导致构建失败
+#    1. 新增 windows-mingw job：用 MSYS2 的 MinGW-w64 编译，
+#       产物完全静态链接，不依赖任何 GCC 运行时 DLL
+#    2. release 依赖三方产物（linux / windows / windows-mingw）
 #
 #  触发：
 #    push 到 main     → 编译验证，不发版
@@ -26,6 +25,7 @@ permissions:
 
 env:
   IMGUI_VERSION: v1.90.9
+  GLFW_VERSION: 3.4
   # 关掉 vcpkg 的二进制缓存提示，日志更干净
   VCPKG_DISABLE_METRICS: 1
 
@@ -81,10 +81,10 @@ jobs:
           if-no-files-found: error
 
   # ==========================================================
-  #  Windows
+  #  Windows（MSVC + vcpkg，原有方案，保留）
   # ==========================================================
   windows:
-    name: Windows x64
+    name: Windows x64 (MSVC)
     runs-on: windows-latest
 
     steps:
@@ -172,11 +172,81 @@ jobs:
           if-no-files-found: error
 
   # ==========================================================
+  #  Windows（MinGW-w64，新增）
+  #
+  #  为什么不用 vcpkg：MinGW 需要的是 libglfw3.a（静态库），
+  #  vcpkg 的 x64-mingw-static 三重态在 windows runner 上配置麻烦，
+  #  直接用源码编译 GLFW 最稳，且 Linux 交叉编译也走同一条路径。
+  # ==========================================================
+  windows-mingw:
+    name: Windows x64 (MinGW)
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 MSYS2 / MinGW-w64 工具链
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            zip
+
+      - name: 拉取 Dear ImGui 与 GLFW 源码
+        run: |
+          git clone --depth 1 --branch "$IMGUI_VERSION" \
+            https://github.com/ocornut/imgui.git external/imgui
+          git clone --depth 1 --branch "$GLFW_VERSION" \
+            https://github.com/glfw/glfw.git external/glfw
+
+      - name: 打印环境信息
+        run: |
+          cmake --version | head -1
+          g++ --version | head -1
+
+      - name: 配置
+        run: cmake -S . -B build-mingw -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: 编译
+        run: cmake --build build-mingw
+
+      - name: 检查依赖（只打印）
+        continue-on-error: true
+        run: |
+          objdump -p build-mingw/molecule_viewer.exe | grep "DLL Name" | sort -u
+
+      - name: 打包
+        run: |
+          dir=dist/molecule-viewer-win64-mingw
+          mkdir -p "$dir/src"
+          cp build-mingw/molecule_viewer.exe "$dir/"
+          cp -r assets        "$dir/assets"
+          cp -r src/shaders   "$dir/src/shaders"
+          cp README.md LICENSE "$dir/"
+          (cd dist && zip -r ../molecule-viewer-win64-mingw.zip molecule-viewer-win64-mingw)
+          echo "--- 包内容 ---"
+          unzip -l molecule-viewer-win64-mingw.zip | head -20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-mingw
+          path: molecule-viewer-win64-mingw.zip
+          if-no-files-found: error
+
+  # ==========================================================
   #  Release（只在 tag 时执行）
   # ==========================================================
   release:
     name: Publish Release
-    needs: [ linux, windows ]
+    needs: [ linux, windows, windows-mingw ]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
 

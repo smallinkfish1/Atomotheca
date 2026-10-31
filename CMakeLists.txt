@@ -1,20 +1,25 @@
 # ============================================================
 #  Molecule Viewer — CMake 构建脚本
 #
-#  两种构建模式：
+#  支持的编译器 / 平台：
+#    Linux    g++            （系统 glfw3 + glm）
+#    Windows  MSVC           （vcpkg: glfw3 / glm）
+#    Windows  MinGW-w64      （external/glfw 源码静态编译）
+#    Web      Emscripten     （-sUSE_GLFW=3）
 #
-#    桌面（默认）
-#      cmake -S . -B build && cmake --build build -j
+#  依赖查找顺序（桌面）：
+#    GLFW : external/glfw 源码  →  系统 find_package(glfw3)
+#    GLM  : 系统 find_package(glm)  →  external/glm 头文件
 #
-#    Web（Emscripten）
-#      emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release
-#      cmake --build build-web -j
-#      → 输出 build-web/molecule_viewer.html
+#  MinGW 注意事项：
+#    必须让 GLFW 从源码编译（而不是链接 Linux 上的 .so），
+#    并且整个 exe 静态链接 libgcc / libstdc++ / winpthread，
+#    否则拷到没装 MinGW 运行时的 Windows 上会提示缺少 DLL。
 # ============================================================
 
 cmake_minimum_required(VERSION 3.16)
 
-project(MoleculeViewer VERSION 0.1.0 LANGUAGES C CXX)
+project(MoleculeViewer VERSION 0.14.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -28,7 +33,34 @@ endif()
 # Emscripten 环境下 GLFW 和 GL 由 Emscripten 自己提供（-sUSE_GLFW=3），
 # 不需要 find_package，也找不到。
 if(NOT EMSCRIPTEN)
-    find_package(glfw3 3.3 REQUIRED)
+
+    # --------------------------------------------------------
+    #  GLFW
+    #  优先用 external/glfw 源码：
+    #    - Linux / macOS / Windows 行为完全一致
+    #    - MinGW 交叉编译时，系统里没有 Windows 版 GLFW，
+    #      只能靠源码编出静态库
+    # --------------------------------------------------------
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/glfw/CMakeLists.txt)
+
+        set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
+        set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+        set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(GLFW_INSTALL        OFF CACHE BOOL "" FORCE)
+        # 桌面 Linux 默认会去找 X11/Wayland，交叉编译 Windows 时无关但会拖慢配置
+        set(GLFW_BUILD_WAYLAND  OFF CACHE BOOL "" FORCE)
+        set(GLFW_BUILD_X11      OFF CACHE BOOL "" FORCE)
+
+        add_subdirectory(external/glfw EXCLUDE_FROM_ALL)
+        message(STATUS "  GLFW       : 源码编译 (external/glfw)")
+
+    else()
+
+        find_package(glfw3 3.3 REQUIRED)
+        message(STATUS "  GLFW       : 系统库")
+
+    endif()
+
     find_package(OpenGL REQUIRED)
 endif()
 
@@ -91,12 +123,11 @@ target_compile_definitions(molecule_viewer PRIVATE
 )
 
 # ------------------------------------------------------------
-#  Web 构建（Emscripten）
+#  GLM（header-only，三种来源）
 # ------------------------------------------------------------
 if(EMSCRIPTEN)
 
-    # ---- GLM 需要单独准备 ----
-    # emcc 的 sysroot 里没有 GLM，所以要自己放一份到 external/glm/
+    # emcc 的 sysroot 里没有 GLM，必须自己放一份到 external/glm/
     if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/glm/glm/glm.hpp)
         message(FATAL_ERROR
             "\n========================================================\n"
@@ -112,6 +143,36 @@ if(EMSCRIPTEN)
     target_include_directories(molecule_viewer PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/external/glm
     )
+
+elseif(glm_FOUND)
+
+    target_link_libraries(molecule_viewer PRIVATE glm::glm)
+
+elseif(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/glm/glm/glm.hpp)
+
+    # 系统没装 GLM（或交叉编译时找到的是主机版），用项目里的一份
+    target_include_directories(molecule_viewer PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/glm
+    )
+    message(STATUS "  GLM        : external/glm")
+
+else()
+
+    message(FATAL_ERROR
+        "\n========================================================\n"
+        "  找不到 GLM。任选一种方式：\n"
+        "\n"
+        "    Ubuntu/Debian : sudo apt install libglm-dev\n"
+        "    源码          : git clone --depth 1 --branch 1.0.1 \\\n"
+        "                      https://github.com/g-truc/glm.git external/glm\n"
+        "========================================================\n")
+
+endif()
+
+# ------------------------------------------------------------
+#  Web 构建（Emscripten）
+# ------------------------------------------------------------
+if(EMSCRIPTEN)
 
     set_target_properties(molecule_viewer PROPERTIES
         SUFFIX ".html"
@@ -131,8 +192,6 @@ if(EMSCRIPTEN)
         # 把资源打进虚拟文件系统
         --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets@assets
         --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders@src/shaders
-        # 可选：自定义页面外壳
-        # --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
     )
 
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -162,10 +221,6 @@ else()
         external/glad/include
     )
 
-    if(glm_FOUND)
-        target_link_libraries(molecule_viewer PRIVATE glm::glm)
-    endif()
-
     # 构建后把资源复制到可执行文件旁边
     add_custom_command(TARGET molecule_viewer POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -194,7 +249,6 @@ if(MSVC)
     # NOMINMAX：禁止 <windows.h> 定义 min/max 宏。
     # 否则 main.cpp 里的 std::max(1.0f, app.molR) 会被宏展开成语法错误
     # （报 C2589 / "illegal token on right side of '::'"）。
-    # path_utils.h 里也定义了一份，这里再加一道保险，双保险无副作用。
     target_compile_definitions(molecule_viewer PRIVATE NOMINMAX)
 else()
     target_compile_options(molecule_viewer PRIVATE -Wall -Wextra)
@@ -202,6 +256,31 @@ endif()
 
 if(APPLE AND NOT EMSCRIPTEN)
     target_compile_definitions(molecule_viewer PRIVATE GL_SILENCE_DEPRECATION)
+endif()
+
+# ============================================================
+#  MinGW-w64（Windows 上的 GCC，或在 Linux 上交叉编译）
+# ============================================================
+if(WIN32 AND NOT MSVC AND NOT EMSCRIPTEN)
+
+    # MinGW 的 <windows.h> 同样会定义 min/max 宏；NOMINMAX 必须加。
+    # _WIN32_WINNT=0x0601：目标 Windows 7 及以上，GetOpenFileNameW 等 API 可用。
+    target_compile_definitions(molecule_viewer PRIVATE
+        NOMINMAX
+        _WIN32_WINNT=0x0601
+    )
+
+    # 关键：把 GCC 运行时静态链进 exe。
+    # 不加这三个参数，生成的 exe 会依赖：
+    #   libstdc++-6.dll / libgcc_s_seh-1.dll / libwinpthread-1.dll
+    # 普通 Windows 机器上没有这些 DLL，双击就报"缺少 DLL"。
+    target_link_options(molecule_viewer PRIVATE
+        -static
+        -static-libgcc
+        -static-libstdc++
+    )
+
+    message(STATUS "  Runtime    : MinGW 静态运行时")
 endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"

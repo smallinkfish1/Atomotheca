@@ -1,50 +1,94 @@
 # ============================================================
-#  Molecule Viewer — Git 忽略规则
+#  Atomotheca / Molecule Viewer — Git 忽略规则
+#
+#  原则只有一条：
+#    能从「源码 + 一条 clone 命令」重建出来的东西，不提交。
+#
+#  必须提交的（别往这里加）：
+#    src/            源码
+#    assets/         分子文件 + data/elements.json
+#    external/glad/  第 2 天放进来的，别人 clone 必须能编
+#    external/json/  nlohmann/json 单头文件
+#    external/glm/   故意提交：Emscripten 的 sysroot 里没有 GLM，
+#                    Web 构建要靠这份兜底（见 CMakeLists 的 FATAL_ERROR 分支）
+#    cmake/          toolchain 文件
+#    devlog/         开发日志与每日说明文档（只有 zip 除外，见下）
 # ============================================================
 
 # ---------- 构建产物 ----------
+# 原来只有 build/，漏了 build-win/，
+# 结果 build-win 下 18 个 POST_BUILD 拷贝文件（assets / shaders / glfw3.pc）
+# 被提交进了仓库。build-*/ 一并覆盖 build-win、build-web 这类命名。
 build/
+build-*/
 cmake-build-*/
 out/
 install/
 
-# ---------- 第三方库（由使用者自行 clone）----------
-# ImGui 源码不在仓库中，靠 README 里的 clone 命令获取
-external/imgui/
-
-# 注意：external/glad/ 不要加！
-#       那是本项目自己的文件（第 2 天放进仓库），必须提交，
-#       否则别人 clone 下来编译不了。
-
-# ---------- 编辑器 / IDE ----------
-.vscode/
-.idea/
-*.swp
-*~
-*.kate-swp
-
-# ---------- 编译中间文件 ----------
-*.o
-*.obj
-*.a
-*.so
-*.dylib
-*.lib
-*.exp
-*.pdb
-
-# ---------- 可执行文件 ----------
-molecule_viewer
-molecule_viewer.exe
-*.app
+# Windows 发布打包的暂存目录：exe + assets 的副本，随时可重建
+dist/
 
 # ---------- CMake 生成的文件 ----------
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
-compile_commands.json
+CMakeUserPresets.json
 Makefile
+compile_commands.json
 *.ninja
+
+# ---------- 编译中间文件 ----------
+*.o
+*.obj
+*.a
+*.lib
+*.exp
+*.pdb
+*.so
+*.dylib
+*.d
+*.ilk
+
+# ---------- 可执行文件 ----------
+molecule_viewer
+molecule_viewer.exe
+*.exe
+*.app
+
+# ---------- 第三方库（由使用者自行 clone）----------
+# ImGui 源码不在仓库中，靠 README 里的 clone 命令获取
+external/imgui/
+
+# GLFW：约定是「用户自行 clone」。但历史上它曾被误提交成一个
+# 没有 .gitmodules 的 gitlink（mode 160000），clone 下来是空目录。
+# 这里忽略它，配合 README / CI 里已有的 clone 步骤使用。
+external/glfw/
+
+# 注意：external/glad/ 不要加！
+#       那是本项目自己的文件（第 2 天放进仓库），必须提交，
+#       否则别人 clone 下来编译不了。
+#
+# 注意：external/glm/ 也不要加！
+#       Web 构建（emcc）的 sysroot 里没有 GLM，CMakeLists 找不到会直接
+#       FATAL_ERROR 并提示 clone，那份兜底就是仓库里这份。
+
+# ---------- 打包产物 ----------
+# devlog 里放的是每日文档（要提交），zip 是打包结果（可重建，不提交）
+devlog/*.zip
+/*.zip
+
+# ---------- 本地工具数据 ----------
+# 智能体 / 编辑器插件的本地缓存，与项目本身无关
+.workbuddy/
+
+# ---------- 编辑器 / IDE ----------
+.vscode/
+.idea/
+*.swp
+*.kate-swp
+*~
+\#*\#
+.\#*
 
 # ---------- ImGui 窗口布局缓存 ----------
 # （代码里已通过 io.IniFilename = nullptr 禁用，这里再加一层保险）
@@ -55,7 +99,10 @@ imgui.ini
 Thumbs.db
 desktop.ini
 
-# ---------- 临时文件 ----------
+# ---------- 本地脚本与临时文件 ----------
+# 注意：.dev/make_assets.py 已经在仓库里了，这条规则只拦新增的临时脚本
+/.dev/
 *.log
 *.tmp
-/.dev/
+*.bak
+*.orig

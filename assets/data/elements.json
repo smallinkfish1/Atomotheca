@@ -1,0 +1,316 @@
+{
+  "_comment": "Atomotheca 元素数据库。所有化学数据只允许出现在这里，C++ 代码里禁止硬编码。",
+  "version": "1.0",
+  "source": "IUPAC 2021 原子量；电子排布按 Aufbau 原理 + 洪特规则；CPK 配色取 Jmol 方案",
+  "elements": [
+    {
+      "symbol": "H",
+      "name": "Hydrogen",
+      "nameZh": "氢",
+      "atomicNumber": 1,
+      "atomicMass": 1.008,
+      "period": 1,
+      "group": 1,
+      "category": "nonmetal",
+      "cpkColor": [0.96, 0.96, 0.96],
+      "subshells": [ { "n": 1, "l": 0, "e": 1 } ],
+      "commonIons": [1, -1]
+    },
+    {
+      "symbol": "He",
+      "name": "Helium",
+      "nameZh": "氦",
+      "atomicNumber": 2,
+      "atomicMass": 4.0026,
+      "period": 1,
+      "group": 18,
+      "category": "noble-gas",
+      "cpkColor": [0.85, 1.00, 1.00],
+      "subshells": [ { "n": 1, "l": 0, "e": 2 } ],
+      "commonIons": []
+    },
+    {
+      "symbol": "Li",
+      "name": "Lithium",
+      "nameZh": "锂",
+      "atomicNumber": 3,
+      "atomicMass": 6.94,
+      "period": 2,
+      "group": 1,
+      "category": "alkali-metal",
+      "cpkColor": [0.80, 0.50, 1.00],
+      "subshells": [ { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 1 } ],
+      "commonIons": [1]
+    },
+    {
+      "symbol": "Be",
+      "name": "Beryllium",
+      "nameZh": "铍",
+      "atomicNumber": 4,
+      "atomicMass": 9.0122,
+      "period": 2,
+      "group": 2,
+      "category": "alkaline-earth-metal",
+      "cpkColor": [0.76, 1.00, 0.00],
+      "subshells": [ { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 } ],
+      "commonIons": [2]
+    },
+    {
+      "symbol": "B",
+      "name": "Boron",
+      "nameZh": "硼",
+      "atomicNumber": 5,
+      "atomicMass": 10.81,
+      "period": 2,
+      "group": 13,
+      "category": "metalloid",
+      "cpkColor": [1.00, 0.71, 0.71],
+      "subshells": [ { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 1 } ],
+      "commonIons": [3]
+    },
+    {
+      "symbol": "C",
+      "name": "Carbon",
+      "nameZh": "碳",
+      "atomicNumber": 6,
+      "atomicMass": 12.011,
+      "period": 2,
+      "group": 14,
+      "category": "nonmetal",
+      "cpkColor": [0.56, 0.56, 0.56],
+      "subshells": [ { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 2 } ],
+      "commonIons": []
+    },
+    {
+      "symbol": "N",
+      "name": "Nitrogen",
+      "nameZh": "氮",
+      "atomicNumber": 7,
+      "atomicMass": 14.007,
+      "period": 2,
+      "group": 15,
+      "category": "nonmetal",
+      "cpkColor": [0.19, 0.31, 0.97],
+      "subshells": [ { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 3 } ],
+      "commonIons": [-3]
+    },
+    {
+      "symbol": "O",
+      "name": "Oxygen",
+      "nameZh": "氧",
+      "atomicNumber": 8,
+      "atomicMass": 15.999,
+      "period": 2,
+      "group": 16,
+      "category": "nonmetal",
+      "cpkColor": [1.00, 0.05, 0.05],
+      "subshells": [ { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 4 } ],
+      "commonIons": [-2]
+    },
+    {
+      "symbol": "F",
+      "name": "Fluorine",
+      "nameZh": "氟",
+      "atomicNumber": 9,
+      "atomicMass": 18.998,
+      "period": 2,
+      "group": 17,
+      "category": "halogen",
+      "cpkColor": [0.56, 0.88, 0.31],
+      "subshells": [ { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 5 } ],
+      "commonIons": [-1]
+    },
+    {
+      "symbol": "Ne",
+      "name": "Neon",
+      "nameZh": "氖",
+      "atomicNumber": 10,
+      "atomicMass": 20.180,
+      "period": 2,
+      "group": 18,
+      "category": "noble-gas",
+      "cpkColor": [0.70, 0.89, 0.96],
+      "subshells": [ { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 } ],
+      "commonIons": []
+    },
+    {
+      "symbol": "Na",
+      "name": "Sodium",
+      "nameZh": "钠",
+      "atomicNumber": 11,
+      "atomicMass": 22.990,
+      "period": 3,
+      "group": 1,
+      "category": "alkali-metal",
+      "cpkColor": [0.67, 0.36, 0.95],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 1 }
+      ],
+      "commonIons": [1]
+    },
+    {
+      "symbol": "Mg",
+      "name": "Magnesium",
+      "nameZh": "镁",
+      "atomicNumber": 12,
+      "atomicMass": 24.305,
+      "period": 3,
+      "group": 2,
+      "category": "alkaline-earth-metal",
+      "cpkColor": [0.54, 1.00, 0.00],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }
+      ],
+      "commonIons": [2]
+    },
+    {
+      "symbol": "Al",
+      "name": "Aluminium",
+      "nameZh": "铝",
+      "atomicNumber": 13,
+      "atomicMass": 26.982,
+      "period": 3,
+      "group": 13,
+      "category": "post-transition-metal",
+      "cpkColor": [0.75, 0.65, 0.65],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 1 }
+      ],
+      "commonIons": [3]
+    },
+    {
+      "symbol": "Si",
+      "name": "Silicon",
+      "nameZh": "硅",
+      "atomicNumber": 14,
+      "atomicMass": 28.085,
+      "period": 3,
+      "group": 14,
+      "category": "metalloid",
+      "cpkColor": [0.94, 0.78, 0.63],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 2 }
+      ],
+      "commonIons": [4]
+    },
+    {
+      "symbol": "P",
+      "name": "Phosphorus",
+      "nameZh": "磷",
+      "atomicNumber": 15,
+      "atomicMass": 30.974,
+      "period": 3,
+      "group": 15,
+      "category": "nonmetal",
+      "cpkColor": [1.00, 0.50, 0.00],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 3 }
+      ],
+      "commonIons": [-3]
+    },
+    {
+      "symbol": "S",
+      "name": "Sulfur",
+      "nameZh": "硫",
+      "atomicNumber": 16,
+      "atomicMass": 32.06,
+      "period": 3,
+      "group": 16,
+      "category": "nonmetal",
+      "cpkColor": [1.00, 0.78, 0.20],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 4 }
+      ],
+      "commonIons": [-2]
+    },
+    {
+      "symbol": "Cl",
+      "name": "Chlorine",
+      "nameZh": "氯",
+      "atomicNumber": 17,
+      "atomicMass": 35.45,
+      "period": 3,
+      "group": 17,
+      "category": "halogen",
+      "cpkColor": [0.20, 0.90, 0.20],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 5 }
+      ],
+      "commonIons": [-1]
+    },
+    {
+      "symbol": "Ar",
+      "name": "Argon",
+      "nameZh": "氩",
+      "atomicNumber": 18,
+      "atomicMass": 39.948,
+      "period": 3,
+      "group": 18,
+      "category": "noble-gas",
+      "cpkColor": [0.50, 0.82, 0.89],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }
+      ],
+      "commonIons": []
+    },
+    {
+      "symbol": "K",
+      "name": "Potassium",
+      "nameZh": "钾",
+      "atomicNumber": 19,
+      "atomicMass": 39.098,
+      "period": 4,
+      "group": 1,
+      "category": "alkali-metal",
+      "cpkColor": [0.56, 0.25, 0.83],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 },
+        { "n": 4, "l": 0, "e": 1 }
+      ],
+      "commonIons": [1]
+    },
+    {
+      "symbol": "Ca",
+      "name": "Calcium",
+      "nameZh": "钙",
+      "atomicNumber": 20,
+      "atomicMass": 40.078,
+      "period": 4,
+      "group": 2,
+      "category": "alkaline-earth-metal",
+      "cpkColor": [0.24, 1.00, 0.00],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 },
+        { "n": 4, "l": 0, "e": 2 }
+      ],
+      "commonIons": [2]
+    },
+    {
+      "symbol": "Fe",
+      "name": "Iron",
+      "nameZh": "铁",
+      "atomicNumber": 26,
+      "atomicMass": 55.845,
+      "period": 4,
+      "group": 8,
+      "category": "transition-metal",
+      "cpkColor": [0.88, 0.40, 0.20],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 6 },
+        { "n": 4, "l": 0, "e": 2 }
+      ],
+      "commonIons": [2, 3]
+    }
+  ]
+}

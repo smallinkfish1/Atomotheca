@@ -2,6 +2,8 @@
 
 用 C++ + OpenGL 实现的有机物分子 3D 可视化程序，支持**球棍模型**与**空间填充模型**切换，可从 `.mol` / `.pdb` 文件加载分子，并支持点击原子查看键长与键角。
 
+同时内置 **Atomotheca 原子典**模块：从 JSON 读取元素数据，输出电子排布式与常见离子状态。
+
 ## 功能
 
 - 球棍模型 / 空间填充模型，一键切换
@@ -11,6 +13,7 @@
 - 自动居中、按分子大小自动适配相机
 - Dear ImGui 控制面板：模型、半径、光照、背景实时调节
 - 点击原子高亮并显示标签，测量键长与键角
+- **元素数据库（Atomotheca）**：21 个元素的电子排布、常见离子由 `assets/data/elements.json` 驱动，改数据不用重编译
 
 <!-- 把截图放到 docs/images/ 下，再取消注释 -->
 <!-- ![screenshot](docs/images/day12-picking.png) -->
@@ -32,6 +35,8 @@ git clone --depth 1 --branch v1.90.9 https://github.com/ocornut/imgui.git extern
 ```
 
 > `external/glad/` 已随仓库提供，无需额外下载。
+>
+> `external/json/`（nlohmann/json 3.11.3 单头文件）也已随仓库提供，无需额外下载。
 >
 > 如果 `git clone` 太慢，可到 [ImGui Releases](https://github.com/ocornut/imgui/releases) 下载 zip，解压后把文件夹重命名为 `imgui` 放到 `external/` 下。
 
@@ -104,7 +109,37 @@ cd build && ./molecule_viewer    # 在 build 目录
 ./build/molecule_viewer assets/benzene.mol   # 指定分子
 ./build/molecule_viewer --help               # 查看帮助
 ./build/molecule_viewer --version            # 查看版本
+./build/molecule_viewer --dump O             # 打印氧的电子排布与常见离子
+./build/molecule_viewer --dump Fe            # 打印铁（含 Fe2+ / Fe3+）
 ```
+
+`--dump` 是纯数据层验证，不打开窗口，可以在没有显卡的环境（CI）里跑：
+
+```
+$ ./build/molecule_viewer --dump Fe
+元素数据库: 21 个元素  |  示例 O: 1s2 2s2 2p4
+Iron (Fe)  铁
+  atomic number : 26
+  atomic mass   : 55.845
+  period / group: 4 / 8
+  category      : transition-metal
+  electrons     : 26
+  config        : 1s2 2s2 2p6 3s2 3p6 3d6 4s2
+  energy order  : 1s2 2s2 2p6 3s2 3p6 4s2 3d6   (填充次序，4s 在 3d 之前)
+  subshells     :
+    1s  2/2  [==]
+    2s  2/2  [==]
+    2p  6/6  [======]
+    3s  2/2  [==]
+    3p  6/6  [======]
+    3d  6/10  [======....]
+    4s  2/2  [==]
+  common ions   :
+    Fe2+  charge=+2  electrons=24  1s2 2s2 2p6 3s2 3p6 3d6
+    Fe3+  charge=+3  electrons=23  1s2 2s2 2p6 3s2 3p6 3d5
+```
+
+> 元素符号大小写写错（`--dump fe`）会自动修正；数据库里没有的元素会列出所有可用符号。
 
 ## 操作
 
@@ -179,6 +214,14 @@ cd build && ./molecule_viewer    # 在 build 目录
 - 无键表时按**共价半径**自动推断化学键
 - 加载后按包围盒中心自动居中，并按分子半径自动适配相机距离
 
+**元素数据（Atomotheca）**
+
+- 元素基础数据、电子排布、常见离子全部外置到 `assets/data/elements.json`，C++ 里不硬编码
+- 亚层用 `{n, l, e}` 三个整数表示，容量按 `2 × (2l + 1)` 校验
+- 两套排序：**书写顺序**（按 `n`、`l`，与课本一致）和**填充顺序**（Madelung 规则 `n+l`，体现 4s 在 3d 之前）
+- 阳离子按「**先失最外层**」逐个剥电子，所以 Fe²⁺ 是 `3d⁶`，不是 `3d⁴4s²`
+- 加载时做三道校验：字段范围、电子总数 = 原子序数、离子推算自检
+
 **交互**
 
 - 原子拾取用**射线拾取**：屏幕坐标经逆投影 + 逆视图还原成 3D 射线，再与球体求交
@@ -195,6 +238,7 @@ cd build && ./molecule_viewer    # 在 build 目录
 - **MOL（V2000）**：3D 坐标 + 键表
 - **PDB**：`ATOM` / `HETATM` + `CONECT`（无 `CONECT` 时自动推断键）
 - MOL（V3000）暂不支持；SDF 只读取第一个分子
+- **元素数据（JSON）**：本项目自定义格式，见 `assets/data/elements.json`
 
 也可以从 [PubChem](https://pubchem.ncbi.nlm.nih.gov/) 下载任意分子的 3D MOL 文件，放进 `assets/` 后直接加载。
 
@@ -203,23 +247,45 @@ cd build && ./molecule_viewer    # 在 build 目录
 ```
 molecule-viewer/
 ├── CMakeLists.txt
-├── assets/               # 示例分子（.mol / .pdb）
-├── docs/images/          # 截图（可选）
+├── assets/                # 示例分子（.mol / .pdb）
+│   └── data/
+│       └── elements.json  # 元素数据库（21 个元素）
+├── docs/images/           # 截图（可选）
 ├── external/
-│   ├── glad/             # 随仓库提供
-│   └── imgui/            # 需自行 clone，已被 gitignore
+│   ├── glad/              # 随仓库提供
+│   ├── json/              # nlohmann/json 单头文件，随仓库提供
+│   └── imgui/             # 需自行 clone，已被 gitignore
 └── src/
-    ├── main.cpp          # 主循环、相机、绘制
-    ├── picking.h         # 射线拾取
-    ├── path_utils.h      # 跨平台资源路径解析
-    ├── molfile.h         # .mol / .pdb 解析
-    ├── molecule.h        # 分子数据结构与 CPK 配色
-    ├── sphere.h          # 球体网格生成
-    ├── cylinder.h        # 圆柱网格生成
-    ├── shader.h          # 着色器封装
-    └── shaders/          # GLSL 源码
+    ├── main.cpp           # 主循环、相机、绘制
+    ├── picking.h          # 射线拾取
+    ├── path_utils.h       # 跨平台资源路径解析
+    ├── molfile.h          # .mol / .pdb 解析
+    ├── molecule.h         # 分子数据结构与 CPK 配色
+    ├── sphere.h           # 球体网格生成
+    ├── cylinder.h         # 圆柱网格生成
+    ├── shader.h           # 着色器封装
+    ├── orbital/
+    │   ├── element.h      # 元素 / 亚层 / 离子 / 数据库 声明
+    │   └── element.cpp    # JSON 解析、校验、电子排布、离子推算
+    └── shaders/           # GLSL 源码
 ```
 
 ## 许可证
 
 MIT License，详见 [LICENSE](LICENSE)。
+
+---
+
+## 附：本版相对原 README 的改动（合并时请删掉本节）
+
+只加不删，结构、语气、章节顺序完全保持原样。逐处列出：
+
+1. **开头简介**：加一句"同时内置 Atomotheca 原子典模块"。
+2. **功能**：末尾加一条"元素数据库（Atomotheca）"。
+3. **依赖**：加一句"`external/json/` 也已随仓库提供"。
+4. **命令行**：示例里加 `--dump O` / `--dump Fe`，附一段真实输出与一句说明。
+5. **技术要点**：在「交互」之前插入小节「元素数据（Atomotheca）」，五行。
+6. **支持的格式**：加一条 JSON 元素数据。
+7. **项目结构**：`assets/` 下加 `data/elements.json`；`external/` 加 `json/`；`src/` 加 `orbital/`。
+
+没有改动的章节：环境要求、编译、运行、操作、测量、控制面板、许可证。

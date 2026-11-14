@@ -112,10 +112,14 @@ endif()
 # ============================================================
 #  主程序
 # ============================================================
-add_executable(molecule_viewer src/main.cpp)
+add_executable(molecule_viewer
+    src/main.cpp
+    src/orbital/element.cpp      # 第 15 天：元素数据库（数据层，不碰 OpenGL）
+)
 
 target_include_directories(molecule_viewer PRIVATE
     src
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/json   # nlohmann/json 单头文件
 )
 
 target_compile_definitions(molecule_viewer PRIVATE

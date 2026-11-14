@@ -1,11 +1,14 @@
 // src/main.cpp
-// 第 14 天：Emscripten / WebAssembly 适配。
+// 第 15 天：Atomotheca 数据层——元素数据库（JSON 驱动）。
 //
 // 主要改动：
-//   1. 主循环从 while 改为可被 Emscripten 接管的回调（emscripten_set_main_loop）
-//   2. 所有跨帧状态收进全局 AppState（Web 上 main 的栈会被回收，局部变量不能留）
-//   3. 浏览器里没有命令行参数，控制面板加"示例分子"下拉框
-//   4. OpenGL 头文件按平台切换（桌面 GLAD / Web GLES3）
+//   1. 引入 nlohmann/json，元素数据外置到 assets/data/elements.json
+//   2. 新增 src/orbital/element.h + element.cpp：解析、校验、电子排布、离子推算
+//   3. 启动时加载数据库；新增 --dump <元素符号> 命令行参数用于验证数据层
+//
+// 第 14 天（沿用）：Emscripten / WebAssembly 适配。
+//   - 主循环用 emscripten_set_main_loop，跨帧状态全部收进全局 AppState
+//   - 浏览器里没有命令行参数，控制面板加"示例分子"下拉框
 //
 // 桌面与 Web 的功能完全一致：球棍/填充、光照、拾取、键长键角。
 
@@ -28,6 +31,7 @@
 #include "picking.h"
 #include "path_utils.h"
 #include "file_dialog.h"     // 跨平台文件选择对话框（拖拽之外的第二入口）
+#include "orbital/element.h" // Atomotheca 数据层（不依赖 OpenGL）
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -124,6 +128,25 @@ struct AppState
 };
 
 AppState g_app;
+
+// ==================== Atomotheca 元素数据库 ====================
+// 第 15 天：化学数据全部来自 assets/data/elements.json，C++ 里不硬编码。
+// 数据层加载失败不影响分子查看器的正常使用，只是周期表面板暂时不可用。
+orbital::ElementDatabase g_elements;
+
+// 加载元素数据库。路径走三级回退（CWD → exe 目录 → exe 上级），
+// 和分子文件、着色器用同一套解析逻辑。成功返回 true。
+static bool loadElementDatabase(std::string* error)
+{
+    const std::string path = pathutil::resolveResource("assets/data/elements.json");
+    if (path.empty())
+    {
+        *error = "找不到 assets/data/elements.json"
+                 "（已尝试：工作目录 / 可执行文件目录 / 可执行文件上级目录）";
+        return false;
+    }
+    return g_elements.loadFromFile(path, error);
+}
 
 // ==================== 选中状态 ====================
 std::vector<int> g_selected;
@@ -1084,6 +1107,8 @@ int main(int argc, char** argv)
     std::string userPath = "assets/methane.mol";
 
 #ifndef __EMSCRIPTEN__
+    std::string dumpSymbol;   // --dump 的目标元素符号，空表示不 dump
+
     for (int i = 1; i < argc; ++i)
     {
         std::string arg = argv[i];
@@ -1092,9 +1117,12 @@ int main(int argc, char** argv)
         {
             std::cout
                 << "Molecule Viewer v" << APP_VERSION << "\n\n"
-                << "用法: molecule_viewer [分子文件]\n\n"
+                << "用法: molecule_viewer [分子文件] [--dump <元素符号>]\n\n"
                 << "  [分子文件]   支持 .mol (V2000) 和 .pdb\n"
                 << "               省略时默认加载 assets/methane.mol\n\n"
+                << "  --dump <符号>  打印元素的电子排布与所有常见离子，然后退出。\n"
+                << "                 用来单独验证数据层，不打开窗口。\n\n"
+                << "                 例: --dump O   --dump Fe\n\n"
                 << "操作:\n"
                 << "  左键拖拽     旋转视角\n"
                 << "  左键单击     选中原子\n"
@@ -1111,8 +1139,78 @@ int main(int argc, char** argv)
             return 0;
         }
 
+        // --dump 排他执行：打印完就退出，不初始化 GLFW，也不需要分子文件
+        if (arg == "--dump")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "[错误] --dump 后面要跟元素符号，例如: --dump Fe\n";
+                return -1;
+            }
+            dumpSymbol = argv[++i];
+            continue;
+        }
+
         userPath = arg;
     }
+
+    // ---------- 元素数据库 ----------
+    // 放在 GLFW 初始化之前：--dump 是纯数据层验证，不需要窗口，
+    // 数据和渲染彻底解耦，headless（无显卡/CI）环境也能跑。
+    std::string dbError;
+    const bool dbOk = loadElementDatabase(&dbError);
+    if (!dbOk)
+    {
+        std::cerr << "[错误] 元素数据库加载失败: " << dbError << "\n";
+        std::cerr << "       分子查看器继续运行，但 Atomotheca 面板不可用。\n";
+    }
+    else
+    {
+        std::cout << "元素数据库: " << g_elements.size() << " 个元素";
+        // 顺带打印氧的排布，一眼确认数据层是通的
+        if (const orbital::Element* oxygen = g_elements.find("O"))
+            std::cout << "  |  示例 O: " << oxygen->configString();
+        std::cout << std::endl;
+    }
+
+    // ---------- --dump ----------
+    if (!dumpSymbol.empty())
+    {
+        if (!dbOk)
+            return -1;
+
+        const orbital::Element* element = g_elements.find(dumpSymbol);
+        if (element == nullptr)
+        {
+            // 大小写写错了也帮忙兜一下：fe → Fe
+            std::string fixed = dumpSymbol;
+            if (!fixed.empty())
+            {
+                for (char& c : fixed) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                fixed[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(fixed[0])));
+                element = g_elements.find(fixed);
+            }
+        }
+
+        if (element == nullptr)
+        {
+            std::cerr << "[错误] 数据库里没有元素: " << dumpSymbol << "\n";
+            std::cerr << "       当前可用: ";
+            for (const orbital::Element& e : g_elements.elements())
+                std::cerr << e.symbol << ' ';
+            std::cerr << "\n";
+            return -1;
+        }
+
+        std::cout << orbital::describe(*element);
+        return 0;
+    }
+#else
+    // Web：资源已打包进虚拟文件系统，路径固定
+    std::string dbError;
+    const bool dbOk = loadElementDatabase(&dbError);
+    if (!dbOk)
+        std::cerr << "[错误] 元素数据库加载失败: " << dbError << std::endl;
 #endif
 
     // ---------- 资源路径 ----------

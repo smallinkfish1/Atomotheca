@@ -37,7 +37,8 @@
 #include "path_utils.h"
 #include "file_dialog.h"     // 跨平台文件选择对话框（拖拽之外的第二入口）
 #include "orbital/element.h" // Atomotheca 数据层（不依赖 OpenGL）
-#include "ui/periodic_table.h" // 第 16 天：元素周期表面板（只依赖 ImGui + 数据层）
+#include "ui/periodic_table.h"  // 第 16 天：元素周期表面板（只依赖 ImGui + 数据层）
+#include "ui/energy_diagram.h"  // 第 17 天：能级图（同上，只依赖 ImGui + 数据层）
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -154,10 +155,33 @@ static bool loadElementDatabase(std::string* error)
     return g_elements.loadFromFile(path, error);
 }
 
+// 按符号查元素，容错「大小写写错」（fe → Fe）。
+// 不做完整的忽略大小写比较：元素符号只有 1–2 个字母，首字母大写 + 其余小写就够了。
+static const orbital::Element* findElementLoose(const std::string& symbol)
+{
+    const orbital::Element* element = g_elements.find(symbol);
+    if (element != nullptr) return element;
+
+    std::string fixed = symbol;
+    if (!fixed.empty())
+    {
+        for (char& c : fixed)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        fixed[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(fixed[0])));
+    }
+    return g_elements.find(fixed);
+}
+
 // ==================== 周期表面板状态 ====================
 // 面板自己的状态（看哪个元素、哪个离子、开不开）归面板，
 // 不塞进 UiState —— 那里放的是分子显示相关的东西，混在一起会让拆分更难。
 ui::PeriodicTableState g_periodic;
+
+// ==================== 能级图状态 ====================
+// 能级图不自己记「看哪个元素」：那是 g_periodic.selectedZ 的职责。
+// 它只持有显示开关和一份「上次按哪个元素算的」缓存，避免每帧重建能级行。
+// 两个面板共用一个选择，比各自维护一份再想办法同步要可靠。
+ui::EnergyDiagramState g_energy;
 
 // ==================== 选中状态 ====================
 std::vector<int> g_selected;
@@ -534,6 +558,11 @@ static void key_callback(GLFWwindow* window, int key, int /*scancode*/,
         // 第 16 天：周期表是独立窗口，单独一个开关，不和 Tab 绑在一起
         g_periodic.visible = !g_periodic.visible;
     }
+    else if (key == GLFW_KEY_L)
+    {
+        // 第 17 天：能级图同样独立开关
+        g_energy.visible = !g_energy.visible;
+    }
     else if (key == GLFW_KEY_ESCAPE)
     {
         if (!g_selected.empty())
@@ -773,11 +802,13 @@ static void DrawControlPanel()
         ImGui::Checkbox("Labels (selected)",  &g_ui.showSelectedLabels);
         ImGui::Checkbox("Labels (all atoms)", &g_ui.showAllLabels);
 
-        // 第 16 天：周期表开关。数据库没加载成功时禁用，而不是让用户点开一个空窗口。
+        // 第 16–17 天：周期表与能级图开关。
+        // 数据库没加载成功时禁用，而不是让用户点开一个空窗口。
         if (g_elements.empty())
         {
             ImGui::BeginDisabled();
             ImGui::Checkbox("Periodic table  (P)", &g_periodic.visible);
+            ImGui::Checkbox("Energy levels   (L)", &g_energy.visible);
             ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::TextDisabled("no data");
@@ -785,6 +816,7 @@ static void DrawControlPanel()
         else
         {
             ImGui::Checkbox("Periodic table  (P)", &g_periodic.visible);
+            ImGui::Checkbox("Energy levels   (L)", &g_energy.visible);
         }
         ImGui::Spacing();
 
@@ -950,6 +982,15 @@ static void renderFrame()
 
     // 第 16 天：周期表是独立窗口，跟控制面板的显隐互不影响
     ui::drawPeriodicTable(g_elements, g_periodic);
+
+    // 第 17 天：能级图跟着周期表的选择走（同一个元素、同一个离子）。
+    // 把「看什么」只存在 g_periodic 一处，两个面板就不会各说各话。
+    if (g_energy.visible && !g_elements.empty())
+    {
+        if (const orbital::Element* current = g_elements.findByZ(g_periodic.selectedZ))
+            ui::drawEnergyDiagram(g_elements, current->atomicNumber,
+                                  g_periodic.selectedCharge(*current), g_energy);
+    }
 
     // ---------- 相机 ----------
     // 注意：必须放在面板之后。
@@ -1151,6 +1192,7 @@ int main(int argc, char** argv)
 #ifndef __EMSCRIPTEN__
     std::string dumpSymbol;   // --dump 的目标元素符号，空表示不 dump
     bool        dumpTable = false;   // --dump-table：打印 ASCII 周期表
+    std::string dumpLevelsSymbol;    // --dump-levels 的目标元素符号
 
     for (int i = 1; i < argc; ++i)
     {
@@ -1160,7 +1202,8 @@ int main(int argc, char** argv)
         {
             std::cout
                 << "Molecule Viewer v" << APP_VERSION << "\n\n"
-                << "用法: molecule_viewer [分子文件] [--dump <元素符号>] [--dump-table]\n\n"
+                << "用法: molecule_viewer [分子文件] [--dump <元素符号>]\n"
+                << "                      [--dump-table] [--dump-levels <元素符号>]\n\n"
                 << "  [分子文件]   支持 .mol (V2000) 和 .pdb\n"
                 << "               省略时默认加载 assets/methane.mol\n\n"
                 << "  --dump <符号>  打印元素的电子排布与所有常见离子，然后退出。\n"
@@ -1169,6 +1212,9 @@ int main(int argc, char** argv)
                 << "  --dump-table   以 ASCII 打印周期表（18 族 × N 周期），然后退出。\n"
                 << "                 用来核对「按 period/group 定位」的排布是否正确，\n"
                 << "                 同样不需要显卡。'.' 表示真实存在但数据库没收录。\n\n"
+                << "  --dump-levels <符号> 以 ASCII 打印能级图（中性原子 + 所有常见离子）。\n"
+                << "                 从上到下是能量由高到低，所以 4s 会出现在 3d 下面。\n"
+                << "                 例: --dump-levels Fe\n\n"
                 << "操作:\n"
                 << "  左键拖拽     旋转视角\n"
                 << "  左键单击     选中原子\n"
@@ -1177,6 +1223,7 @@ int main(int argc, char** argv)
                 << "  空格         切换 球棍 / 空间填充 模型\n"
                 << "  Tab          显示 / 隐藏控制面板\n"
                 << "  P            显示 / 隐藏元素周期表\n"
+                << "  L            显示 / 隐藏能级图\n"
                 << "  Esc          取消选择；没有选中时退出\n";
             return 0;
         }
@@ -1202,6 +1249,18 @@ int main(int argc, char** argv)
         if (arg == "--dump-table")
         {
             dumpTable = true;
+            continue;
+        }
+
+        // 第 17 天：--dump-levels 也是排他执行
+        if (arg == "--dump-levels")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "[错误] --dump-levels 后面要跟元素符号，例如: --dump-levels Fe\n";
+                return -1;
+            }
+            dumpLevelsSymbol = argv[++i];
             continue;
         }
 
@@ -1233,18 +1292,7 @@ int main(int argc, char** argv)
         if (!dbOk)
             return -1;
 
-        const orbital::Element* element = g_elements.find(dumpSymbol);
-        if (element == nullptr)
-        {
-            // 大小写写错了也帮忙兜一下：fe → Fe
-            std::string fixed = dumpSymbol;
-            if (!fixed.empty())
-            {
-                for (char& c : fixed) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                fixed[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(fixed[0])));
-                element = g_elements.find(fixed);
-            }
-        }
+        const orbital::Element* element = findElementLoose(dumpSymbol);
 
         if (element == nullptr)
         {
@@ -1268,6 +1316,31 @@ int main(int argc, char** argv)
         if (!dbOk)
             return -1;
         ui::printPeriodicTableAscii(g_elements);
+        return 0;
+    }
+
+    // ---------- --dump-levels ----------
+    // 和 --dump-table 同一个思路：窗口在这一层验证不了，但「谁在谁上方」是纯数据。
+    // 一次把中性原子和所有常见离子都打出来，顺便核一遍 makeIon() 的推算结果。
+    if (!dumpLevelsSymbol.empty())
+    {
+        if (!dbOk)
+            return -1;
+
+        const orbital::Element* element = findElementLoose(dumpLevelsSymbol);
+        if (element == nullptr)
+        {
+            std::cerr << "[错误] 数据库里没有元素: " << dumpLevelsSymbol << "\n";
+            std::cerr << "       当前可用: ";
+            for (const orbital::Element& e : g_elements.elements())
+                std::cerr << e.symbol << ' ';
+            std::cerr << "\n";
+            return -1;
+        }
+
+        ui::printEnergyDiagramAscii(g_elements, element->atomicNumber, 0);
+        for (int q : element->commonIonCharges)
+            ui::printEnergyDiagramAscii(g_elements, element->atomicNumber, q);
         return 0;
     }
 #else

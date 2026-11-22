@@ -23,6 +23,12 @@ struct PeriodicTableState
     bool visible   = true;   // 面板是否显示（P 键切换）
     int  selectedZ = 8;      // 选中的原子序数，默认氧，和 --dump 的示例一致
     int  ionIndex  = 0;      // 0 = 中性原子；1..n 依次对应 commonIonCharges[i-1]
+
+    // 当前选中的电荷：0 = 中性原子，否则取 commonIonCharges[ionIndex-1]。
+    //
+    // 能级图要跟着「现在看哪个元素的哪个离子」走，所以把这次换算放在状态自己身上。
+    // 否则 main.cpp 得知道 ionIndex 是 1-based、还得自己判越界 —— 那是把内部表示漏出去。
+    int selectedCharge(const orbital::Element& e) const;
 };
 
 // 绘制周期表窗口（网格 + 选中元素详情）。

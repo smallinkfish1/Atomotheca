@@ -93,6 +93,18 @@ ImU32 inkOn(const std::array<float, 3>& c)
 } // namespace
 
 // ============================================================
+//  状态
+// ============================================================
+int PeriodicTableState::selectedCharge(const orbital::Element& e) const
+{
+    // ionIndex 是面板内部的下标：0 表示中性，1..n 映射到 commonIonCharges[0..n-1]。
+    // 数据换过、ionIndex 越界时退回中性，不让调用方拿到一个凭空来的电荷。
+    if (ionIndex <= 0 || ionIndex > static_cast<int>(e.commonIonCharges.size()))
+        return 0;
+    return e.commonIonCharges[static_cast<std::size_t>(ionIndex - 1)];
+}
+
+// ============================================================
 //  窗口
 // ============================================================
 void drawPeriodicTable(const orbital::ElementDatabase& db, PeriodicTableState& state)

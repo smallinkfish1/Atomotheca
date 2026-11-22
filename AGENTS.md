@@ -8,7 +8,7 @@ Atomotheca（原子典）是一个用 C++17 + OpenGL 3.3 手写的分子与原�
 
 - 学习导向的桌面工具，不是工业级产品。不追求渲染百万原子，不做量子化学计算、不做分子动力学。
 - 分子查看器已完成：`.mol`(V2000) / `.pdb` 加载、球棍与空间填充模型、轨道相机、Blinn-Phong 双光源、ImGui 面板、射线拾取、键长键角测量、拖拽与文件对话框、无键表时按共价半径推断化学键。
-- Atomotheca 模块进行中：已完成 JSON 元素库（36 个元素，H–Kr，前四周期完整）、电子排布、离子推算、元素周期表面板（18 族网格 + 族号表头 + 点击详情 + 离子切换）；待做 2D 能级图、s/p/d 轨道 3D、电子云点云。
+- Atomotheca 模块进行中：已完成 JSON 元素库（36 个元素，H–Kr，前四周期完整）、电子排布、离子推算、元素周期表面板（18 族网格 + 族号表头 + 点击详情 + 离子切换）、2D 能级图（能量顺序 + 洪特规则箭头）；待做 s/p/d 轨道 3D、电子云点云。
 - 化学数据一律放 `assets/data/*.json`，C++ 代码里禁止硬编码大段化学数据。
 
 ### 技术栈（已锁定，不要更换）
@@ -77,6 +77,8 @@ cmake --build build-web -j$(nproc)
 ./build/molecule_viewer --dump Cr     # 期望 3d5 4s1（例外元素），Cr3+ 为 3d3
 ./build/molecule_viewer --dump Cu     # 期望 3d10 4s1（例外元素），Cu+ 为 3d10
 ./build/molecule_viewer --dump-table  # 期望 4 行 18 族全满，H 在第 1 族、He 在第 18 族、Kr 在第 4 周期第 18 族
+./build/molecule_viewer --dump-levels Fe  # 期望 4s 行出现在 3d 行【之后】（文本从上到下 = 能量从高到低）
+./build/molecule_viewer --dump-levels Ca  # 4s 已满，上方应有空的 3d 占位（next to fill）
 ```
 
 - `--dump` 是纯数据层验证，不打开窗口，可在无显卡环境跑。改数据层必须跑这套。
@@ -89,7 +91,7 @@ cmake --build build-web -j$(nproc)
 
 ```
 src/
-├── main.cpp          1502 行  应用状态、GLFW 回调、ImGui 面板、主循环（待拆分）
+├── main.cpp          1575 行  应用状态、GLFW 回调、ImGui 面板、主循环（待拆分）
 ├── shader.h           178     着色器编译与 uniform 封装
 ├── sphere.h           105     UV 球网格生成（纯数学）
 ├── cylinder.h          80     圆柱侧面网格
@@ -98,10 +100,12 @@ src/
 ├── picking.h          133     屏幕坐标 → 射线 → 原子命中
 ├── path_utils.h       105     资源路径三级回退
 ├── file_dialog.h      267     系统文件对话框（Win32 / zenity / osascript）
-├── orbital/element.h  143     亚层 / 离子 / 元素 / 数据库声明
-├── orbital/element.cpp 537    JSON 解析、校验、电子排布、离子推算
-├── ui/periodic_table.h  39    周期表面板状态与入口声明
-├── ui/periodic_table.cpp 340  18 族网格 + 族号表头、格子自绘、详情区、ASCII 版
+├── orbital/element.h  149     亚层 / 离子 / 元素 / 数据库声明
+├── orbital/element.cpp 545    JSON 解析、校验、电子排布、离子推算、Madelung 序列
+├── ui/periodic_table.h  45    周期表面板状态（含 selectedCharge）与入口声明
+├── ui/periodic_table.cpp 352  18 族网格 + 族号表头、格子自绘、详情区、ASCII 版
+├── ui/energy_diagram.h  66    能级行 / 缓存状态 / 两个入口声明
+├── ui/energy_diagram.cpp 354  洪特分配、方框与自旋箭头、悬停反算、ASCII 版
 └── shaders/                   sphere.vert/.frag、cylinder.vert/.frag
 
 assets/            示例分子 .mol / .pdb，以及 data/elements.json（36 个元素）
@@ -147,8 +151,8 @@ external/          glad、json、glm 随仓库；imgui、glfw 由使用者 clone
 | Day 10–14 | .mol/.pdb 解析、ImGui 面板、射线拾取、跨平台路径、Emscripten | 完成（Web 仅编译级） |
 | 附加 | 拖拽与文件对话框、三平台 CI、MinGW 交叉编译 | 完成 |
 | Day 15 | 元素数据库 + 电子排布（Atomotheca 第 1 天） | 完成 |
-| Day 16 | ImGui 元素周期表面板（18 族网格、族号表头、点击详情、离子切换、`--dump-table`） | 完成，最新 |
-| Day 17 | 2D 能级图（`ImDrawList` 画方框、↑↓ 箭头、4s 在 3d 下方） | 待开始 |
+| Day 16 | ImGui 元素周期表面板（18 族网格、族号表头、点击详情、离子切换、`--dump-table`） | 完成 |
+| Day 17 | 2D 能级图（能量顺序 + 洪特规则箭头、占位空层、`--dump-levels`） | 完成，最新 |
 | Day 18 | 3D s / p 轨道（球 + 哑铃，半透明，p_x/p_y/p_z 红绿蓝） | 待开始 |
 | Day 19 | 3D d 轨道与球谐函数（d_xy / d_yz / d_z²，UI 下拉切换） | 待开始 |
 | Day 20 | 电子云点云（`GL_POINTS`，概率密度撒点，点大小与透明度） | 待开始 |
@@ -159,10 +163,10 @@ Day 20 之后做架构拆分，见下面技术债。
 
 | 问题 | 现状 | 计划 |
 |---|---|---|
-| `main.cpp` 1445 行 | 状态、回调、UI、渲染混在一起 | Day 20 后拆成 `app/` `render/` `ui/` |
+| `main.cpp` 1575 行 | 状态、回调、UI、渲染混在一起 | Day 20 后拆成 `app/` `render/` `ui/` |
 | 应用状态没有归属 | `g_app` / `g_ui` / `g_selected` / 相机角度都是文件级全局变量，回调直接读写 | 拆分前先定数据流归属，否则只是搬代码 |
 | 透明渲染未排序 | 第 18 天轨道需要半透明 | Day 18 必须处理：先不透明，再按距离画透明，关闭深度写入 |
-| `element.cpp` 按值返回 `std::vector<Subshell>` | 调用频率低，暂无问题 | Day 17 每帧画能级图时改为缓存 |
+| `element.cpp` 按值返回 `std::vector<Subshell>` | 能级图已在 `EnergyDiagramState` 里按「元素 + 电荷」缓存，不再每帧重建 | 其它调用点频率低，保持现状 |
 | `elements.json` 只到 Kr（Z=36） | 5–7 周期未收录，f 区完全没有 | 界面按 `maxPeriod` 自适应，会显示 5 行淡框「未收录」；要扩需同时设计镧系锕系的行外摆放 |
 | Web / WASM 未实机验证 | 只有编译级结论 | 后续在 CI 或本地补 |
 | Windows MSVC 产物未实机验证 | CI 编过，未双击运行 | 需要一台 Windows |
@@ -182,6 +186,9 @@ Day 20 之后做架构拆分，见下面技术债。
 | 拷贝 exe 到别的机器缺 DLL | MinGW 默认动态链接 GCC 运行时 | 加 `-static -static-libgcc -static-libstdc++`，分发前 `objdump -p` 查依赖 |
 | 着色器读取失败 | 文件名写错（`rect.flag`） | 逐字核对报错里的文件名 |
 | `glad/glad.h` 找不到 | 文件被平铺到 `external/` 根 | 必须是 `external/glad/include/glad/glad.h` |
+| 能级图把 4s 画在 3d 上面 | 用了书写顺序 `sortByShell` | 图里只能按能量顺序：`sortByEnergy` 或 `energySequence()` |
+| 能级图给 Fe 标了空的 4p「待填」 | 占位条件写成「第一个数据里没有的层」，但 3d 只填了 6/10 | 必须「所有已占据亚层都满」才补下一层；`--dump-levels Fe` 能看到这个错 |
+| 能级图箭头显示成方块 | 用了 `"↑"` 字符 | ImGui 默认字体只有 ASCII，箭头要用 `DrawList` 画 |
 
 ## 安全与注意事项
 

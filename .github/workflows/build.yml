@@ -11,6 +11,11 @@
 #    push 到 main → 编译验证，不发版
 #    push v* tag  → 编译 + 创建 Release
 #    手动         → 只编译
+#
+#  Release 描述来源：
+#    devlog/dayNN-*/releasenote.md 里 version 与 tag 相同的文件，按天顺序拼接。
+#    一个版本跨多天（如 v0.2.0 含 Day 15–18）会把这几天的说明都带上。
+#    一个都没匹配到时，退回 GitHub 的自动生成说明（按 commit 标题）。
 # ============================================================
 
 name: Build & Release
@@ -266,6 +271,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      # 需要仓库文件：Release 正文从 devlog/dayNN-*/releasenote.md 里读
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -278,7 +286,59 @@ jobs:
           echo "--- 将发布以下文件 ---"
           ls -lh out/
 
-      - name: 创建 Release
+      # 正文 = 所有 version 与 tag 一致的 releasenote.md，按天顺序拼接。
+      # 找不到就 matched=0，由下一步退回 GitHub 自动生成的说明。
+      - name: 汇总 devlog 里的 Release 说明
+        id: notes
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          # v0.3.0-rc1 这类预发布也认 0.3.0 的说明：去掉 -rc / -beta 后缀
+          TAG_VERSION="${TAG_VERSION%%-*}"
+          echo "tag = ${GITHUB_REF_NAME}，按 version = ${TAG_VERSION} 找说明"
+          : > release-body.md
+          matched=0
+          for f in $(find devlog -maxdepth 2 -name releasenote.md | sort); do
+            ver=$(sed -n 's/^version:[[:space:]]*//p' "$f" | head -1 | tr -d '[:space:]')
+            if [ "$ver" != "$TAG_VERSION" ]; then
+              continue
+            fi
+            title=$(sed -n 's/^title:[[:space:]]*//p' "$f" | head -1)
+            if [ "$matched" = "1" ]; then
+              printf '\n---\n\n' >> release-body.md
+            fi
+            printf '## %s\n\n' "$title" >> release-body.md
+            # 跳过 front matter、去掉开头的空行、把正文的 ## 降一级挂到「第 N 天」下面
+            awk '
+              /^---[[:space:]]*$/ { if (n < 2) { n++; next } }
+              (n >= 2 || n == 0) {
+                if (!seen && $0 ~ /^[[:space:]]*$/) next
+                seen = 1
+                if ($0 ~ /^## /) { print "#" $0; next }
+                print
+              }
+            ' "$f" >> release-body.md
+            echo "  + $f（${title}）"
+            matched=1
+          done
+          echo "matched=$matched" >> "$GITHUB_OUTPUT"
+          if [ "$matched" = "1" ]; then
+            echo "--- 生成的 Release 正文 ---"
+            cat release-body.md
+          else
+            echo "没有 version=${TAG_VERSION} 的 releasenote.md，退回自动生成的说明"
+          fi
+
+      - name: 创建 Release（用 devlog 里的说明）
+        if: steps.notes.outputs.matched == '1'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          body_path: release-body.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+
+      - name: 创建 Release（没有说明时自动生成）
+        if: steps.notes.outputs.matched != '1'
         uses: softprops/action-gh-release@v2
         with:
           files: out/*

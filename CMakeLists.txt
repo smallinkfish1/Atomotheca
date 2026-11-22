@@ -147,8 +147,10 @@ endif()
 add_executable(molecule_viewer
     src/main.cpp
     src/orbital/element.cpp      # 第 15 天：元素数据库（数据层，不碰 OpenGL）
+    src/orbital/shape.cpp        # 第 18 天：s / p 轨道网格（纯数学，不碰 OpenGL）
     src/ui/periodic_table.cpp    # 第 16 天：周期表面板（只依赖 ImGui + 数据层）
     src/ui/energy_diagram.cpp    # 第 17 天：能级图（同上）
+    src/ui/orbital_panel.cpp     # 第 18 天：轨道形状控制项（同上）
 )
 
 target_include_directories(molecule_viewer PRIVATE

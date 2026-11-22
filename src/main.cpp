@@ -1,21 +1,20 @@
 // src/main.cpp
-// 第 16 天：Atomotheca 元素周期表面板（模块第 2 天）。
+// 第 18 天：3D s / p 轨道（Atomotheca 模块第 4 天）。
 //
 // 主要改动：
-//   1. 新增 src/ui/periodic_table.{h,cpp}：18 族 × N 周期网格、点击详情、离子切换
-//   2. 面板状态收进 ui::PeriodicTableState，不往 main.cpp 的全局变量上再加灯
-//   3. P 键显示 / 隐藏周期表；新增 --dump-table，用 ASCII 核对布局而不开窗口
+//   1. 新增 src/orbital/shape.{h,cpp}：s 球 / p 双瓣的网格生成（纯数学，不碰 OpenGL）
+//   2. 新增 orbital.vert / orbital.frag：Fresnel 透明度 + 双面法线翻面
+//   3. 渲染拆成「不透明阶段」和「透明阶段」：原子与键先画，轨道后画
+//      —— 透明物体必须后画、从远到近、且不写深度，否则前后乱穿
+//   4. 新增 src/ui/orbital_panel.{h,cpp}：控制面板里的形状选择段
+//   5. 新增 --dump-orbital，用 ASCII 剖面核对几何而不开窗口
 //
+// 第 17 天（沿用）：2D 能级图。
+// 第 16 天（沿用）：Atomotheca 元素周期表面板。
 // 第 15 天（沿用）：Atomotheca 数据层——元素数据库（JSON 驱动）。
-//   1. 引入 nlohmann/json，元素数据外置到 assets/data/elements.json
-//   2. 新增 src/orbital/element.h + element.cpp：解析、校验、电子排布、离子推算
-//   3. 启动时加载数据库；新增 --dump <元素符号> 命令行参数用于验证数据层
-//
 // 第 14 天（沿用）：Emscripten / WebAssembly 适配。
-//   - 主循环用 emscripten_set_main_loop，跨帧状态全部收进全局 AppState
-//   - 浏览器里没有命令行参数，控制面板加"示例分子"下拉框
 //
-// 桌面与 Web 的功能完全一致：球棍/填充、光照、拾取、键长键角。
+// 桌面与 Web 的功能完全一致：球棍/填充、光照、拾取、键长键角、元素面板、轨道形状。
 
 // ---------- 平台相关的头 ----------
 #ifdef __EMSCRIPTEN__
@@ -37,8 +36,10 @@
 #include "path_utils.h"
 #include "file_dialog.h"     // 跨平台文件选择对话框（拖拽之外的第二入口）
 #include "orbital/element.h" // Atomotheca 数据层（不依赖 OpenGL）
+#include "orbital/shape.h"   // 第 18 天：轨道形状网格（同上，纯数学）
 #include "ui/periodic_table.h"  // 第 16 天：元素周期表面板（只依赖 ImGui + 数据层）
 #include "ui/energy_diagram.h"  // 第 17 天：能级图（同上，只依赖 ImGui + 数据层）
+#include "ui/orbital_panel.h"   // 第 18 天：轨道形状控制项（同上）
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -103,12 +104,33 @@ struct AppState
 
     Shader* sphereShader   = nullptr;
     Shader* cylinderShader = nullptr;
+    Shader* orbitalShader  = nullptr;   // 第 18 天：半透明轨道
 
     unsigned int sphereVAO = 0, sphereVBO = 0, sphereEBO = 0;
     unsigned int cylVAO    = 0, cylVBO    = 0, cylEBO    = 0;
 
     GLsizei sphereIndexCount = 0;
     GLsizei cylIndexCount    = 0;
+
+    // ---------- 第 18 天：轨道形状的 GPU 资源 ----------
+    // 每个形状一份 VBO/EBO（4 个）。看着比"一个网格 + 旋转矩阵"浪费，
+    // 但对称轴直接烘进顶点里，渲染时不用再维护 4 个旋转矩阵，
+    // 也避免了"p_y 的模型矩阵写错 90°"这类只有肉眼能发现的 bug。
+    unsigned int orbVAO[orbital::SHAPE_COUNT] = {};
+    unsigned int orbVBO[orbital::SHAPE_COUNT] = {};
+    unsigned int orbEBO[orbital::SHAPE_COUNT] = {};
+
+    // 每瓣的索引数（同一形状内各瓣相同）与瓣数
+    GLsizei orbLobeIndexCount[orbital::SHAPE_COUNT] = {};
+    int     orbLobeCount[orbital::SHAPE_COUNT]      = {};
+
+    // 瓣心（单位尺度，3 个 float 一组）。渲染时乘上 model 得到世界坐标，
+    // 按到相机的距离从远到近排序 —— 半透明不排序就会前后乱穿。
+    std::vector<float> orbLobeCenter[orbital::SHAPE_COUNT];
+
+    // orbital uniforms
+    GLint o_model = -1, o_view = -1, o_proj = -1, o_normalMat = -1;
+    GLint o_color = -1, o_alpha = -1, o_viewPos = -1, o_lightPos = -1;
 
     // sphere uniforms
     GLint s_model = -1, s_view = -1, s_proj = -1, s_normalMat = -1;
@@ -183,6 +205,11 @@ ui::PeriodicTableState g_periodic;
 // 两个面板共用一个选择，比各自维护一份再想办法同步要可靠。
 ui::EnergyDiagramState g_energy;
 
+// ==================== 轨道形状状态 ====================
+// 这份状态和 g_periodic 没有耦合：轨道形状是「看哪一种几何体」，
+// 和「看哪个元素」是两件事（Day 19 加了 d 轨道之后也仍然无关）。
+ui::OrbitalState g_orbital;
+
 // ==================== 选中状态 ====================
 std::vector<int> g_selected;
 const size_t     MAX_SELECTION = 2;
@@ -215,6 +242,10 @@ const glm::vec3 BOND_COLOR  = glm::vec3(0.62f, 0.62f, 0.66f);
 const float     BOND_RADIUS = 0.07f;
 
 const glm::vec3 HIGHLIGHT_COLOR = glm::vec3(1.00f, 0.80f, 0.15f);
+
+// 第 18 天：轨道形状的整体尺寸 = 分子半径 × 这个系数。
+// 取 1.3 是为了让 p 的两瓣伸出分子外壳一点 —— 正好包住就看不清"哑铃"了。
+const float ORBITAL_EXTENT_FACTOR = 1.30f;
 
 // ==================== 相机 ====================
 float g_yaw    = 0.6f;
@@ -394,6 +425,10 @@ static void doPick(float sx, float sy, bool additive,
 {
     if (g_app.molecule.atoms.empty()) return;
 
+    // 第 18 天：分子被隐藏时（只看轨道形状）不参与拾取。
+    // 否则会出现"点了空处却选中一个看不见的原子、右侧面板冒出原子信息"的怪状态。
+    if (g_orbital.visible && g_orbital.hideMolecule) return;
+
     picking::Ray ray = picking::makeRay(
         sx, sy,
         static_cast<float>(g_winW), static_cast<float>(g_winH),
@@ -562,6 +597,12 @@ static void key_callback(GLFWwindow* window, int key, int /*scancode*/,
     {
         // 第 17 天：能级图同样独立开关
         g_energy.visible = !g_energy.visible;
+    }
+    else if (key == GLFW_KEY_O)
+    {
+        // 第 18 天：3D 轨道形状。Ctrl+O 是打开文件，在上面已经 return 了，
+        // 所以这里只可能是单独按 O。
+        g_orbital.visible = !g_orbital.visible;
     }
     else if (key == GLFW_KEY_ESCAPE)
     {
@@ -820,6 +861,11 @@ static void DrawControlPanel()
         }
         ImGui::Spacing();
 
+        // 第 18 天：轨道形状。放在控制面板里而不是新开窗口——
+        // 屏幕上已经有面板 + 周期表 + 能级图，再加窗口只会互相遮挡。
+        ui::drawOrbitalControls(g_orbital);
+        ImGui::Spacing();
+
         ImGui::TextColored(ImVec4(0.55f, 0.80f, 1.0f, 1.0f), "ANIMATION");
         ImGui::Separator();
         ImGui::Checkbox("Auto rotate", &g_ui.autoRotate);
@@ -885,6 +931,8 @@ static void DrawControlPanel()
         ImGui::TextDisabled("Space     : switch model");
         ImGui::TextDisabled("Tab       : show / hide panel");
         ImGui::TextDisabled("P         : periodic table");
+        ImGui::TextDisabled("L         : energy levels");
+        ImGui::TextDisabled("O         : s / p orbital shape");
         ImGui::TextDisabled("Esc       : clear selection");
     }
     ImGui::End();
@@ -944,84 +992,18 @@ static void DrawAtomLabels(const glm::mat4& view, const glm::mat4& projection)
 }
 
 // ============================================================
-//  一帧的全部工作
+//  不透明阶段：原子与键
 //
-//  桌面：由 while 循环反复调用
-//  Web ：由 emscripten_set_main_loop 反复调用
-//
-//  所以它不能有任何"局部持久状态"——所有跨帧数据都在 g_app / 全局变量里
+//  第 18 天从 renderFrame 里原样抽出来的，不是新功能。
+//  抽出来的唯一理由是：轨道是半透明的，而透明物体必须
+//  「等所有不透明物体画完」再画。如果两个阶段继续挤在同一个函数里、
+//  只靠缩进区分，以后加新的透明物体时迟早会插到原子前面去。
 // ============================================================
-static void renderFrame()
+static void drawMoleculeOpaque(const glm::mat4& view, const glm::mat4& projection,
+                               const glm::vec3& lightPos, const glm::vec3& fillLightPos,
+                               const glm::vec3& fillColor)
 {
     AppState& app = g_app;
-
-    float currentFrame = (float)glfwGetTime();
-    float deltaTime = currentFrame - g_lastFrame;
-    g_lastFrame = currentFrame;
-    if (deltaTime > 0.1f) deltaTime = 0.1f;
-
-    glfwPollEvents();
-    glfwGetWindowSize(app.window, &g_winW, &g_winH);
-    if (g_winW <= 0 || g_winH <= 0) return;
-
-    if (g_ui.autoRotate)
-        g_autoAngle += g_ui.rotateSpeed * deltaTime;
-
-    g_spinMatrix = glm::mat4(1.0f);
-    if (g_autoAngle != 0.0f)
-        g_spinMatrix = glm::rotate(glm::mat4(1.0f), g_autoAngle,
-                                   glm::vec3(0.0f, 1.0f, 0.0f));
-
-    // ---------- ImGui ----------
-    ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-
-    if (g_ui.showPanel)
-        DrawControlPanel();
-
-    // 第 16 天：周期表是独立窗口，跟控制面板的显隐互不影响
-    ui::drawPeriodicTable(g_elements, g_periodic);
-
-    // 第 17 天：能级图跟着周期表的选择走（同一个元素、同一个离子）。
-    // 把「看什么」只存在 g_periodic 一处，两个面板就不会各说各话。
-    if (g_energy.visible && !g_elements.empty())
-    {
-        if (const orbital::Element* current = g_elements.findByZ(g_periodic.selectedZ))
-            ui::drawEnergyDiagram(g_elements, current->atomicNumber,
-                                  g_periodic.selectedCharge(*current), g_energy);
-    }
-
-    // ---------- 相机 ----------
-    // 注意：必须放在面板之后。
-    // 面板里可能刚加载了新分子（改了 g_radius / app.molR），
-    // 如果相机参数在面板之前算，加载后的第一帧会用旧距离，出现一帧缩放错乱。
-    float camX = g_radius * std::cos(g_pitch) * std::sin(g_yaw);
-    float camY = g_radius * std::sin(g_pitch);
-    float camZ = g_radius * std::cos(g_pitch) * std::cos(g_yaw);
-    g_cameraPos = glm::vec3(camX, camY, camZ);
-
-    glm::mat4 view = glm::lookAt(g_cameraPos,
-                                 glm::vec3(0.0f, 0.0f, 0.0f),
-                                 glm::vec3(0.0f, 1.0f, 0.0f));
-
-    glm::mat4 projection = glm::perspective(
-        glm::radians(FOV_DEG),
-        static_cast<float>(g_winW) / static_cast<float>(g_winH),
-        0.1f, 500.0f);
-
-    float lightScale = std::max(1.0f, app.molR);
-    glm::vec3 lightPos     = g_cameraPos + KEY_LIGHT_OFFSET  * lightScale;
-    glm::vec3 fillLightPos = g_cameraPos + FILL_LIGHT_OFFSET * lightScale;
-    glm::vec3 fillColor    = FILL_LIGHT_BASE * g_ui.fillStrength;
-
-    DrawAtomLabels(view, projection);
-
-    ImGui::Render();
-
-    // ---------- 场景 ----------
-    glClearColor(g_ui.bgColor[0], g_ui.bgColor[1], g_ui.bgColor[2], 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     app.drawOrder.clear();
     for (int i = 0; i < static_cast<int>(app.molecule.atoms.size()); ++i)
@@ -1118,6 +1100,201 @@ static void renderFrame()
             glDrawElements(GL_TRIANGLES, app.cylIndexCount, GL_UNSIGNED_INT, 0);
         }
     }
+}
+
+// ============================================================
+//  透明阶段：s / p 轨道形状
+//
+//  半透明渲染有三个必须同时满足的约束，缺一条就会"前后乱穿"：
+//    1. 画在不透明物体**之后**。否则轨道被原子遮住的部分已经写进了颜色缓冲，
+//       之后原子再画一遍反而会把轨道盖掉。
+//    2. 从远到近。alpha 混合不可交换：A 叠 B 和 B 叠 A 的结果不同。
+//    3. 关掉深度写入（glDepthMask(GL_FALSE)）。深度**测试**要留着
+//       （这样被原子挡住的部分仍然不画），但深度值不更新，
+//       否则先画的瓣会把后画的瓣整块剔除掉。
+//
+//  每一瓣内部再分两次画（先背面后正面），半透明的球才有"能看进内部"的层次感；
+//  只画正面会变成一个扁平的色块。
+// ============================================================
+static void drawOrbitals(const glm::mat4& view, const glm::mat4& projection,
+                         const glm::vec3& lightPos)
+{
+    AppState& app = g_app;
+    const int kind = static_cast<int>(g_orbital.kind);
+
+    if (app.orbitalShader == nullptr || app.orbLobeCount[kind] <= 0)
+        return;
+
+    // 轨道尺寸跟着分子走：换分子时视觉比例不变。
+    const float extent = std::max(app.molR, 0.35f) * ORBITAL_EXTENT_FACTOR;
+
+    glm::mat4 model = glm::mat4(1.0f);
+    model = glm::scale(model, glm::vec3(extent));
+    model = g_spinMatrix * model;      // 跟着自动旋转一起转，否则会"漂"在分子外面
+
+    // 瓣心（单位尺度）变换到世界坐标，按到相机的距离从远到近排序。
+    // 一瓣最多 2 个，冒泡足够 —— 而且渲染循环里不许动态分配，
+    // 所以用固定长度数组而不是 std::vector。
+    struct LobeSort
+    {
+        float dist;
+        int   index;
+    };
+    LobeSort lobes[4];
+    int      count = 0;
+
+    const std::vector<float>& centers = app.orbLobeCenter[kind];
+    for (std::size_t i = 0; i + 2 < centers.size() && count < 4; i += 3)
+    {
+        const glm::vec4 w = model * glm::vec4(centers[i], centers[i + 1], centers[i + 2], 1.0f);
+        lobes[count].dist  = glm::length(glm::vec3(w) - g_cameraPos);
+        lobes[count].index = static_cast<int>(i / 3);
+        ++count;
+    }
+
+    for (int i = 0; i < count; ++i)
+        for (int j = i + 1; j < count; ++j)
+            if (lobes[j].dist > lobes[i].dist)
+                std::swap(lobes[i], lobes[j]);
+
+    const orbital::Rgb rgb = orbital::shapeColor(g_orbital.kind);
+    const glm::mat3    normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));
+
+    app.orbitalShader->use();
+    glUniformMatrix4fv(app.o_view, 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(app.o_proj, 1, GL_FALSE, glm::value_ptr(projection));
+    glUniformMatrix4fv(app.o_model, 1, GL_FALSE, glm::value_ptr(model));
+    glUniformMatrix3fv(app.o_normalMat, 1, GL_FALSE, glm::value_ptr(normalMatrix));
+    glUniform3f(app.o_color, rgb.r, rgb.g, rgb.b);
+    glUniform1f(app.o_alpha, g_orbital.alpha);
+    glUniform3f(app.o_viewPos, g_cameraPos.x, g_cameraPos.y, g_cameraPos.z);
+    glUniform3f(app.o_lightPos, lightPos.x, lightPos.y, lightPos.z);
+
+    glBindVertexArray(app.orbVAO[kind]);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+
+    const GLsizei perLobe = app.orbLobeIndexCount[kind];
+
+    for (int i = 0; i < count; ++i)
+    {
+        // 每瓣的索引在 EBO 里是连续一段，所以用偏移量就能只画这一瓣
+        const std::size_t first = static_cast<std::size_t>(lobes[i].index) *
+                                  static_cast<std::size_t>(perLobe);
+        const void* offset = reinterpret_cast<const void*>(first * sizeof(unsigned int));
+
+        // 远的那半张球面先落缓冲：剔除正面，只留背面
+        glCullFace(GL_FRONT);
+        glDrawElements(GL_TRIANGLES, perLobe, GL_UNSIGNED_INT, offset);
+
+        // 再画朝着相机的正面
+        glCullFace(GL_BACK);
+        glDrawElements(GL_TRIANGLES, perLobe, GL_UNSIGNED_INT, offset);
+    }
+
+    // 状态必须还原。忘了 glDepthMask(GL_TRUE) 的后果特别隐蔽：
+    // 下一帧的原子写不进深度缓冲，整个场景的遮挡关系会时好时坏。
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glCullFace(GL_BACK);
+    glBindVertexArray(0);
+}
+
+// ============================================================
+//  一帧的全部工作
+//
+//  桌面：由 while 循环反复调用
+//  Web ：由 emscripten_set_main_loop 反复调用
+//
+//  所以它不能有任何"局部持久状态"——所有跨帧数据都在 g_app / 全局变量里
+// ============================================================
+static void renderFrame()
+{
+    AppState& app = g_app;
+
+    float currentFrame = (float)glfwGetTime();
+    float deltaTime = currentFrame - g_lastFrame;
+    g_lastFrame = currentFrame;
+    if (deltaTime > 0.1f) deltaTime = 0.1f;
+
+    glfwPollEvents();
+    glfwGetWindowSize(app.window, &g_winW, &g_winH);
+    if (g_winW <= 0 || g_winH <= 0) return;
+
+    if (g_ui.autoRotate)
+        g_autoAngle += g_ui.rotateSpeed * deltaTime;
+
+    g_spinMatrix = glm::mat4(1.0f);
+    if (g_autoAngle != 0.0f)
+        g_spinMatrix = glm::rotate(glm::mat4(1.0f), g_autoAngle,
+                                   glm::vec3(0.0f, 1.0f, 0.0f));
+
+    // ---------- ImGui ----------
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    if (g_ui.showPanel)
+        DrawControlPanel();
+
+    // 第 16 天：周期表是独立窗口，跟控制面板的显隐互不影响
+    ui::drawPeriodicTable(g_elements, g_periodic);
+
+    // 第 17 天：能级图跟着周期表的选择走（同一个元素、同一个离子）。
+    // 把「看什么」只存在 g_periodic 一处，两个面板就不会各说各话。
+    if (g_energy.visible && !g_elements.empty())
+    {
+        if (const orbital::Element* current = g_elements.findByZ(g_periodic.selectedZ))
+            ui::drawEnergyDiagram(g_elements, current->atomicNumber,
+                                  g_periodic.selectedCharge(*current), g_energy);
+    }
+
+    // ---------- 相机 ----------
+    // 注意：必须放在面板之后。
+    // 面板里可能刚加载了新分子（改了 g_radius / app.molR），
+    // 如果相机参数在面板之前算，加载后的第一帧会用旧距离，出现一帧缩放错乱。
+    float camX = g_radius * std::cos(g_pitch) * std::sin(g_yaw);
+    float camY = g_radius * std::sin(g_pitch);
+    float camZ = g_radius * std::cos(g_pitch) * std::cos(g_yaw);
+    g_cameraPos = glm::vec3(camX, camY, camZ);
+
+    glm::mat4 view = glm::lookAt(g_cameraPos,
+                                 glm::vec3(0.0f, 0.0f, 0.0f),
+                                 glm::vec3(0.0f, 1.0f, 0.0f));
+
+    glm::mat4 projection = glm::perspective(
+        glm::radians(FOV_DEG),
+        static_cast<float>(g_winW) / static_cast<float>(g_winH),
+        0.1f, 500.0f);
+
+    float lightScale = std::max(1.0f, app.molR);
+    glm::vec3 lightPos     = g_cameraPos + KEY_LIGHT_OFFSET  * lightScale;
+    glm::vec3 fillLightPos = g_cameraPos + FILL_LIGHT_OFFSET * lightScale;
+    glm::vec3 fillColor    = FILL_LIGHT_BASE * g_ui.fillStrength;
+
+    // 第 18 天：分子被隐藏时，标签也不能留 —— 否则几个字母会浮在轨道形状上，
+    // 指向根本不存在的原子。
+    const bool moleculeVisible = !(g_orbital.visible && g_orbital.hideMolecule);
+
+    if (moleculeVisible)
+        DrawAtomLabels(view, projection);
+
+    ImGui::Render();
+
+    // ---------- 场景 ----------
+    glClearColor(g_ui.bgColor[0], g_ui.bgColor[1], g_ui.bgColor[2], 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // 分两个阶段：先不透明（原子、键），再半透明（轨道）。
+    // 顺序不能颠倒 —— 透明物体必须最后画，否则会被先画的原子盖掉。
+    if (moleculeVisible)
+        drawMoleculeOpaque(view, projection, lightPos, fillLightPos, fillColor);
+
+    // 第 18 天：轨道形状（半透明，必须在不透明阶段之后）
+    if (g_orbital.visible)
+        drawOrbitals(view, projection, lightPos);
 
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
@@ -1175,6 +1352,61 @@ static void setupMeshes()
     glBindVertexArray(0);
 }
 
+// ==================== 第 18 天：轨道形状网格 ====================
+// 4 个形状在启动时一次建好。几何是 orbital/shape.cpp 算出来的纯数学产物，
+// 这里只做两件事：上传显存、记下每瓣的索引范围（半透明排序时要分瓣画）。
+static void setupOrbitalMeshes()
+{
+    AppState& app = g_app;
+
+    for (int i = 0; i < orbital::SHAPE_COUNT; ++i)
+    {
+        const orbital::ShapeKind kind = static_cast<orbital::ShapeKind>(i);
+
+        // 统一按单位尺度生成，实际大小由 model 矩阵缩放 ——
+        // 这样面板里调尺寸不用重建 VBO。
+        orbital::ShapeMesh mesh;
+        orbital::buildShape(kind, 1.0f, mesh);
+
+        const int lobes = static_cast<int>(mesh.lobeCenters.size() / 3);
+
+        app.orbLobeCount[i]  = lobes;
+        app.orbLobeCenter[i] = mesh.lobeCenters;
+
+        // 同一形状里每瓣都是同一个球，索引数必然相等，
+        // 所以只存「一瓣多少索引」，第 k 瓣用 k * perLobe 的偏移量取。
+        app.orbLobeIndexCount[i] =
+            (lobes > 0)
+                ? static_cast<GLsizei>(mesh.indices.size() / static_cast<std::size_t>(lobes))
+                : 0;
+
+        glGenVertexArrays(1, &app.orbVAO[i]);
+        glGenBuffers(1, &app.orbVBO[i]);
+        glGenBuffers(1, &app.orbEBO[i]);
+
+        glBindVertexArray(app.orbVAO[i]);
+
+        glBindBuffer(GL_ARRAY_BUFFER, app.orbVBO[i]);
+        glBufferData(GL_ARRAY_BUFFER,
+                     static_cast<GLsizeiptr>(mesh.vertices.size() * sizeof(float)),
+                     mesh.vertices.data(), GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, app.orbEBO[i]);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                     static_cast<GLsizeiptr>(mesh.indices.size() * sizeof(unsigned int)),
+                     mesh.indices.data(), GL_STATIC_DRAW);
+
+        // 顶点布局和原子球完全一致：[pos xyz][normal xyz] 各 6 个 float
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                              (void*)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+
+        glBindVertexArray(0);
+    }
+}
+
 // ==================== GLFW 错误回调 ====================
 // GLFW 的 API 大多是"失败只返回 0/false"，不抛异常、不打日志。
 // 不挂这个回调，出错时只能看到一句"初始化失败"，排查全靠猜。
@@ -1193,6 +1425,9 @@ int main(int argc, char** argv)
     std::string dumpSymbol;   // --dump 的目标元素符号，空表示不 dump
     bool        dumpTable = false;   // --dump-table：打印 ASCII 周期表
     std::string dumpLevelsSymbol;    // --dump-levels 的目标元素符号
+    bool        dumpOrbital    = false;   // 是否出现 --dump-orbital
+    bool        dumpOrbitalAll = false;   // 不带形状参数 = 四种形状全打
+    orbital::ShapeKind dumpOrbitalKind = orbital::ShapeKind::S;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -1203,7 +1438,8 @@ int main(int argc, char** argv)
             std::cout
                 << "Molecule Viewer v" << APP_VERSION << "\n\n"
                 << "用法: molecule_viewer [分子文件] [--dump <元素符号>]\n"
-                << "                      [--dump-table] [--dump-levels <元素符号>]\n\n"
+                << "                      [--dump-table] [--dump-levels <元素符号>]\n"
+                << "                      [--dump-orbital [s|px|py|pz]]\n\n"
                 << "  [分子文件]   支持 .mol (V2000) 和 .pdb\n"
                 << "               省略时默认加载 assets/methane.mol\n\n"
                 << "  --dump <符号>  打印元素的电子排布与所有常见离子，然后退出。\n"
@@ -1215,6 +1451,10 @@ int main(int argc, char** argv)
                 << "  --dump-levels <符号> 以 ASCII 打印能级图（中性原子 + 所有常见离子）。\n"
                 << "                 从上到下是能量由高到低，所以 4s 会出现在 3d 下面。\n"
                 << "                 例: --dump-levels Fe\n\n"
+                << "  --dump-orbital [形状]  打印 s / p 轨道网格的自检结果与 ASCII 剖面。\n"
+                << "                 形状可取 s / px / py / pz，省略则四种全打。\n"
+                << "                 检查顶点数、包围盒、法线长度、三角形绕序。\n"
+                << "                 例: --dump-orbital   --dump-orbital pz\n\n"
                 << "操作:\n"
                 << "  左键拖拽     旋转视角\n"
                 << "  左键单击     选中原子\n"
@@ -1224,6 +1464,7 @@ int main(int argc, char** argv)
                 << "  Tab          显示 / 隐藏控制面板\n"
                 << "  P            显示 / 隐藏元素周期表\n"
                 << "  L            显示 / 隐藏能级图\n"
+                << "  O            显示 / 隐藏 s / p 轨道形状\n"
                 << "  Esc          取消选择；没有选中时退出\n";
             return 0;
         }
@@ -1261,6 +1502,27 @@ int main(int argc, char** argv)
                 return -1;
             }
             dumpLevelsSymbol = argv[++i];
+            continue;
+        }
+
+        // 第 18 天：--dump-orbital [形状]
+        // 形状参数是可选的，而「可选参数」在命令行里天然有歧义（下一个词
+        // 也可能是分子文件路径）。所以只在它确实能解析成形状名时才吃掉它。
+        if (arg == "--dump-orbital")
+        {
+            dumpOrbital    = true;
+            dumpOrbitalAll = true;
+
+            if (i + 1 < argc)
+            {
+                orbital::ShapeKind k = orbital::ShapeKind::S;
+                if (orbital::parseShapeKind(argv[i + 1], &k))
+                {
+                    dumpOrbitalKind = k;
+                    dumpOrbitalAll  = false;
+                    ++i;
+                }
+            }
             continue;
         }
 
@@ -1341,6 +1603,26 @@ int main(int argc, char** argv)
         ui::printEnergyDiagramAscii(g_elements, element->atomicNumber, 0);
         for (int q : element->commonIonCharges)
             ui::printEnergyDiagramAscii(g_elements, element->atomicNumber, q);
+        return 0;
+    }
+
+    // ---------- --dump-orbital ----------
+    // 几何是纯数学，不需要 GL 上下文，也不需要元素数据库：
+    // 所以这一条放在数据库加载之后、GLFW 之前，无显卡环境同样能跑。
+    if (dumpOrbital)
+    {
+        if (dumpOrbitalAll)
+        {
+            for (int k = 0; k < orbital::SHAPE_COUNT; ++k)
+            {
+                std::cout << orbital::describeShape(static_cast<orbital::ShapeKind>(k));
+                std::cout << "\n";
+            }
+        }
+        else
+        {
+            std::cout << orbital::describeShape(dumpOrbitalKind);
+        }
         return 0;
     }
 #else
@@ -1481,14 +1763,18 @@ int main(int argc, char** argv)
 
     // ---------- 网格 ----------
     setupMeshes();
+    setupOrbitalMeshes();     // 第 18 天：s / p 轨道形状（4 个形状各一份）
 
     // ---------- 着色器 ----------
     std::string svPath = pathutil::resolveResource("src/shaders/sphere.vert");
     std::string sfPath = pathutil::resolveResource("src/shaders/sphere.frag");
     std::string cvPath = pathutil::resolveResource("src/shaders/cylinder.vert");
     std::string cfPath = pathutil::resolveResource("src/shaders/cylinder.frag");
+    std::string ovPath = pathutil::resolveResource("src/shaders/orbital.vert");
+    std::string ofPath = pathutil::resolveResource("src/shaders/orbital.frag");
 
-    if (svPath.empty() || sfPath.empty() || cvPath.empty() || cfPath.empty())
+    if (svPath.empty() || sfPath.empty() || cvPath.empty() || cfPath.empty() ||
+        ovPath.empty() || ofPath.empty())
     {
         std::cerr << "[错误] 找不到着色器文件。" << std::endl;
 
@@ -1502,6 +1788,7 @@ int main(int argc, char** argv)
 
     g_app.sphereShader   = new Shader(svPath.c_str(), sfPath.c_str());
     g_app.cylinderShader = new Shader(cvPath.c_str(), cfPath.c_str());
+    g_app.orbitalShader  = new Shader(ovPath.c_str(), ofPath.c_str());
 
     // ---------- 缓存 uniform 位置 ----------
     {
@@ -1535,6 +1822,16 @@ int main(int argc, char** argv)
         g_app.c_ambient    = glGetUniformLocation(cid, "ambientStrength");
         g_app.c_specular   = glGetUniformLocation(cid, "specularStrength");
         g_app.c_shiny      = glGetUniformLocation(cid, "shininess");
+
+        GLuint oid = g_app.orbitalShader->ID;
+        g_app.o_model     = glGetUniformLocation(oid, "model");
+        g_app.o_view      = glGetUniformLocation(oid, "view");
+        g_app.o_proj      = glGetUniformLocation(oid, "projection");
+        g_app.o_normalMat = glGetUniformLocation(oid, "normalMatrix");
+        g_app.o_color     = glGetUniformLocation(oid, "shapeColor");
+        g_app.o_alpha     = glGetUniformLocation(oid, "baseAlpha");
+        g_app.o_viewPos   = glGetUniformLocation(oid, "viewPos");
+        g_app.o_lightPos  = glGetUniformLocation(oid, "lightPos");
     }
 
     g_lastFrame = (float)glfwGetTime();
@@ -1554,8 +1851,10 @@ int main(int argc, char** argv)
     // ==================== 清理（Web 上不会执行到这里）====================
     delete g_app.sphereShader;
     delete g_app.cylinderShader;
+    delete g_app.orbitalShader;
     g_app.sphereShader = nullptr;
     g_app.cylinderShader = nullptr;
+    g_app.orbitalShader = nullptr;
 
     glDeleteVertexArrays(1, &g_app.sphereVAO);
     glDeleteBuffers(1, &g_app.sphereVBO);
@@ -1563,6 +1862,13 @@ int main(int argc, char** argv)
     glDeleteVertexArrays(1, &g_app.cylVAO);
     glDeleteBuffers(1, &g_app.cylVBO);
     glDeleteBuffers(1, &g_app.cylEBO);
+
+    for (int i = 0; i < orbital::SHAPE_COUNT; ++i)
+    {
+        glDeleteVertexArrays(1, &g_app.orbVAO[i]);
+        glDeleteBuffers(1, &g_app.orbVBO[i]);
+        glDeleteBuffers(1, &g_app.orbEBO[i]);
+    }
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

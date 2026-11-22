@@ -1,15 +1,16 @@
 # ============================================================
-#  Molecule Viewer — 自动构建与发布（Linux + Windows MSVC + Windows MinGW）
+#  Atomotheca — 自动构建与发布（Linux + Windows MSVC + Windows MinGW）
 #
 #  本版改动：
-#    1. 新增 windows-mingw job：用 MSYS2 的 MinGW-w64 编译，
-#       产物完全静态链接，不依赖任何 GCC 运行时 DLL
-#    2. release 依赖三方产物（linux / windows / windows-mingw）
+#  1. windows-mingw 不再用 git clone 拉依赖，改用 actions/checkout
+#     → 彻底摆脱对 MSYS2 里 git 包的依赖（这就是之前 command not found 的原因）
+#  2. GLM 在 MinGW job 里显式检出，避免 CMake fallback 到主机路径
+#  3. 其余 job 与原版保持一致
 #
 #  触发：
-#    push 到 main     → 编译验证，不发版
-#    push v* tag      → 编译 + 创建 Release
-#    手动             → 只编译
+#    push 到 main → 编译验证，不发版
+#    push v* tag  → 编译 + 创建 Release
+#    手动         → 只编译
 # ============================================================
 
 name: Build & Release
@@ -17,7 +18,7 @@ name: Build & Release
 on:
   push:
     branches: [ main ]
-    tags:     [ 'v*' ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 
 permissions:
@@ -26,17 +27,19 @@ permissions:
 env:
   IMGUI_VERSION: v1.90.9
   GLFW_VERSION: 3.4
+  GLM_VERSION: 1.0.1
+
   # 关掉 vcpkg 的二进制缓存提示，日志更干净
   VCPKG_DISABLE_METRICS: 1
 
 jobs:
+
   # ==========================================================
   #  Linux
   # ==========================================================
   linux:
     name: Linux x86_64
     runs-on: ubuntu-22.04
-
     steps:
       - uses: actions/checkout@v4
 
@@ -67,9 +70,9 @@ jobs:
         run: |
           mkdir -p dist/molecule-viewer-linux/src
           cp build/molecule_viewer dist/molecule-viewer-linux/
-          cp -r assets            dist/molecule-viewer-linux/
-          cp -r src/shaders       dist/molecule-viewer-linux/src/
-          cp README.md LICENSE    dist/molecule-viewer-linux/
+          cp -r assets dist/molecule-viewer-linux/
+          cp -r src/shaders dist/molecule-viewer-linux/src/
+          cp README.md LICENSE dist/molecule-viewer-linux/
           tar -czf molecule-viewer-linux-x86_64.tar.gz -C dist molecule-viewer-linux
           echo "--- 包内容 ---"
           tar -tzf molecule-viewer-linux-x86_64.tar.gz | head -20
@@ -81,12 +84,11 @@ jobs:
           if-no-files-found: error
 
   # ==========================================================
-  #  Windows（MSVC + vcpkg，原有方案，保留）
+  #  Windows（MSVC + vcpkg）
   # ==========================================================
   windows:
     name: Windows x64 (MSVC)
     runs-on: windows-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -111,21 +113,21 @@ jobs:
         shell: pwsh
         run: |
           vcpkg version
-
           vcpkg install --classic glfw3:x64-windows-static glm:x64-windows-static
-
-          # 老版本 vcpkg 可能不认识 --classic，回退一次
           if ($LASTEXITCODE -ne 0) {
             Write-Host "带 --classic 失败，改用普通模式重试"
             vcpkg install glfw3:x64-windows-static glm:x64-windows-static
           }
-
           if ($LASTEXITCODE -ne 0) { throw "vcpkg install 失败，退出码 $LASTEXITCODE" }
 
       - name: 配置
         shell: pwsh
         run: |
-          cmake -S . -B build -A x64 -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+            -DCMAKE_BUILD_TYPE=Release
           if ($LASTEXITCODE -ne 0) { throw "CMake 配置失败" }
 
       - name: 编译
@@ -134,7 +136,6 @@ jobs:
           cmake --build build --config Release
           if ($LASTEXITCODE -ne 0) { throw "编译失败" }
 
-      # 诊断信息，只打印，不参与成败判断
       - name: 打印 DLL 依赖（仅供参考）
         shell: pwsh
         continue-on-error: true
@@ -154,15 +155,13 @@ jobs:
         run: |
           $exe = "build\Release\molecule_viewer.exe"
           if (-not (Test-Path $exe)) { throw "没有找到 $exe，编译可能没真正产出" }
-
           $dir = "dist\molecule-viewer-win64"
           New-Item -ItemType Directory -Force -Path "$dir\src" | Out-Null
-          Copy-Item $exe                     $dir\
-          Copy-Item -Recurse assets          "$dir\assets"
-          Copy-Item -Recurse src\shaders     "$dir\src\shaders"
-          Copy-Item README.md, LICENSE       $dir\
+          Copy-Item $exe $dir\
+          Copy-Item -Recurse assets "$dir\assets"
+          Copy-Item -Recurse src\shaders "$dir\src\shaders"
+          Copy-Item README.md, LICENSE $dir\
           Compress-Archive -Path $dir -DestinationPath molecule-viewer-win64.zip -Force
-
           Get-ChildItem molecule-viewer-win64.zip | Format-List Name, Length
 
       - uses: actions/upload-artifact@v4
@@ -172,20 +171,20 @@ jobs:
           if-no-files-found: error
 
   # ==========================================================
-  #  Windows（MinGW-w64，新增）
+  #  Windows（MinGW-w64）
   #
-  #  为什么不用 vcpkg：MinGW 需要的是 libglfw3.a（静态库），
-  #  vcpkg 的 x64-mingw-static 三重态在 windows runner 上配置麻烦，
-  #  直接用源码编译 GLFW 最稳，且 Linux 交叉编译也走同一条路径。
+  #  依赖为什么不用 git clone：
+  #    msys2/setup-msys2 装出来的环境是隔离的，PATH 里没有 runner
+  #    自带的 git。一旦 install 列表漏掉 git，clone 就报 exit 127。
+  #    改用 actions/checkout 检出到子目录，完全不调用 git 命令，
+  #    既不会缺依赖，也自带重试和浅克隆。
   # ==========================================================
   windows-mingw:
     name: Windows x64 (MinGW)
     runs-on: windows-latest
-
     defaults:
       run:
         shell: msys2 {0}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -200,17 +199,34 @@ jobs:
             mingw-w64-x86_64-ninja
             zip
 
-      - name: 拉取 Dear ImGui 与 GLFW 源码
-        run: |
-          git clone --depth 1 --branch "$IMGUI_VERSION" \
-            https://github.com/ocornut/imgui.git external/imgui
-          git clone --depth 1 --branch "$GLFW_VERSION" \
-            https://github.com/glfw/glfw.git external/glfw
+      # 不依赖 MSYS2 里的 git：用 checkout 把仓库检出到指定子目录
+      - name: 拉取 Dear ImGui
+        uses: actions/checkout@v4
+        with:
+          repository: ocornut/imgui
+          ref: ${{ env.IMGUI_VERSION }}
+          path: external/imgui
+
+      - name: 拉取 GLFW
+        uses: actions/checkout@v4
+        with:
+          repository: glfw/glfw
+          ref: ${{ env.GLFW_VERSION }}
+          path: external/glfw
+
+      - name: 拉取 GLM
+        uses: actions/checkout@v4
+        with:
+          repository: g-truc/glm
+          ref: ${{ env.GLM_VERSION }}
+          path: external/glm
 
       - name: 打印环境信息
         run: |
           cmake --version | head -1
           g++ --version | head -1
+          g++ -dumpmachine
+          ls external
 
       - name: 配置
         run: cmake -S . -B build-mingw -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -228,8 +244,8 @@ jobs:
           dir=dist/molecule-viewer-win64-mingw
           mkdir -p "$dir/src"
           cp build-mingw/molecule_viewer.exe "$dir/"
-          cp -r assets        "$dir/assets"
-          cp -r src/shaders   "$dir/src/shaders"
+          cp -r assets "$dir/assets"
+          cp -r src/shaders "$dir/src/shaders"
           cp README.md LICENSE "$dir/"
           (cd dist && zip -r ../molecule-viewer-win64-mingw.zip molecule-viewer-win64-mingw)
           echo "--- 包内容 ---"
@@ -249,7 +265,6 @@ jobs:
     needs: [ linux, windows, windows-mingw ]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/download-artifact@v4
         with:

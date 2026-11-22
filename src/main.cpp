@@ -1100,6 +1100,14 @@ static void setupMeshes()
     glBindVertexArray(0);
 }
 
+// ==================== GLFW 错误回调 ====================
+// GLFW 的 API 大多是"失败只返回 0/false"，不抛异常、不打日志。
+// 不挂这个回调，出错时只能看到一句"初始化失败"，排查全靠猜。
+static void glfwErrorCallback(int code, const char* description)
+{
+    std::cerr << "[GLFW 错误 " << code << "] " << description << std::endl;
+}
+
 // ==================== main ====================
 int main(int argc, char** argv)
 {
@@ -1225,9 +1233,18 @@ int main(int argc, char** argv)
     }
 
     // ---------- GLFW ----------
+    // 先挂错误回调：glfwInit() / glfwCreateWindow() 失败时只返回 false，
+    // 不告诉你原因。挂上之后 GLFW 会把具体错误打到 stderr，
+    // 例如 "No supported platform was found"（GLFW 没编进任何窗口后端）。
+    glfwSetErrorCallback(glfwErrorCallback);
+
     if (!glfwInit())
     {
         std::cerr << "[错误] GLFW 初始化失败！" << std::endl;
+        std::cerr << "       常见原因：" << std::endl;
+        std::cerr << "       1. 没有图形界面（SSH / 纯 TTY），DISPLAY 未设置" << std::endl;
+        std::cerr << "       2. GLFW 编译时没启用 X11 / Wayland 后端（见上方 GLFW 错误码）" << std::endl;
+        std::cerr << "       3. 缺少 libGL / 显卡驱动" << std::endl;
         return -1;
     }
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -1243,6 +1260,11 @@ int main(int argc, char** argv)
     if (!window)
     {
         std::cerr << "[错误] 创建窗口失败！" << std::endl;
+        std::cerr << "       GLFW 初始化成功，但拿不到 OpenGL 3.3 Core 上下文。" << std::endl;
+        std::cerr << "       如果上面出现 'GLX: Failed to create context'，说明是驱动/GLX 的问题：" << std::endl;
+        std::cerr << "         - 虚拟机、远程桌面、无 GPU 的环境常常提供不了 3.3 Core" << std::endl;
+        std::cerr << "         - 用 glxinfo -B 自查：Renderer 是 llvmpipe 或直接报错，就是软件渲染/没装驱动" << std::endl;
+        std::cerr << "         - NVIDIA 显卡需要装闭源驱动，nouveau 通常到不了 3.3 Core" << std::endl;
         glfwTerminate();
         return -1;
     }

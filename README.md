@@ -4,6 +4,9 @@
 
 同时内置 **Atomotheca 原子典**模块：从 JSON 读取元素数据，输出电子排布式与常见离子状态。
 
+> 打算改代码或接手这个项目？先读 **[AGENTS.md](AGENTS.md)**：构建命令、架构铁律、
+> 每日交付约定、已知技术债与踩过的坑都在里面。每日开发记录见 **[devlog/](devlog/)**。
+
 ## 功能
 
 - 球棍模型 / 空间填充模型，一键切换
@@ -15,8 +18,8 @@
 - 点击原子高亮并显示标签，测量键长与键角
 - **元素数据库（Atomotheca）**：21 个元素的电子排布、常见离子由 `assets/data/elements.json` 驱动，改数据不用重编译
 
-<!-- 把截图放到 docs/images/ 下，再取消注释 -->
-<!-- ![screenshot](docs/images/day12-picking.png) -->
+<!-- 截图暂缺。要加的话放到 devlog/images/ 下，再取消下一行注释 -->
+<!-- ![screenshot](devlog/images/day15.png) -->
 
 ## 环境要求
 
@@ -38,6 +41,11 @@ git clone --depth 1 --branch v1.90.9 https://github.com/ocornut/imgui.git extern
 >
 > `external/json/`（nlohmann/json 3.11.3 单头文件）也已随仓库提供，无需额外下载。
 >
+> `external/glm/` 同样随仓库提供（Web / WASM 构建时 emcc 的 sysroot 里没有 GLM，靠这份兜底）。
+>
+> `external/glfw/` **只在 Linux 上交叉编译 Windows 时才需要 clone**（见下面「交叉编译 Windows」）。
+> Linux 原生构建优先使用系统 `libglfw3-dev`；系统库和源码都没有时，CMake 配置阶段会直接报错。
+>
 > 如果 `git clone` 太慢，可到 [ImGui Releases](https://github.com/ocornut/imgui/releases) 下载 zip，解压后把文件夹重命名为 `imgui` 放到 `external/` 下。
 
 ## 编译
@@ -46,15 +54,40 @@ git clone --depth 1 --branch v1.90.9 https://github.com/ocornut/imgui.git extern
 
 ```bash
 git clone https://github.com/smallinkfish1/Atomotheca.git
-cd Cpp-OpenGL-molecule-viewer
+cd Atomotheca
 
 sudo apt update
 sudo apt install build-essential cmake git libglfw3-dev libgl1-mesa-dev libglm-dev
 git clone --depth 1 --branch v1.90.9 https://github.com/ocornut/imgui.git external/imgui
 
-cmake -S . -B build
-cmake --build build -j
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
 ```
+
+> **GLFW 从哪来**：原生构建优先用系统的 `libglfw3-dev`（`find_package(glfw3 3.3)`），
+> 因为 GLFW 3.4 的 X11 后端从源码编时还需要 `libxinerama-dev`、`libxcursor-dev`、
+> `libxi-dev`、`libxrandr-dev`，而 apt 的 `libglfw3-dev` 已经把这些依赖编进去了。
+> 只有交叉编译、或系统没装 glfw3 时，CMake 才退回编译 `external/glfw` 源码。
+>
+> 如果你以前用旧版本的 CMakeLists 配置过，`CMakeCache.txt` 里可能残留
+> `GLFW_BUILD_X11=OFF`，此时编出来的 GLFW 只有 null 后端，运行时报
+> `[错误] GLFW 初始化失败！`。删掉构建目录重新配置即可。
+
+### 在 Linux 上交叉编译 Windows
+
+不想开 Windows 虚拟机时，可以用 MinGW-w64 直接产出 `.exe`：
+
+```bash
+sudo apt install mingw-w64 libglm-dev
+# 交叉编译无法链接宿主机的 .so，必须提供 GLFW 源码
+git clone --depth 1 --branch 3.4 https://github.com/glfw/glfw.git external/glfw
+
+cmake -S . -B build-win -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-mingw64.cmake
+cmake --build build-win -j$(nproc)
+```
+
+产物在 `build-win/molecule_viewer.exe`，已静态链接 GCC 运行时，拷到没装 MinGW 的机器上也能跑。
+`assets/` 和 `src/shaders/` 会由构建脚本自动复制到产物旁边。
 
 ### Windows
 
@@ -246,19 +279,27 @@ Iron (Fe)  铁
 
 ```
 molecule-viewer/
+├── AGENTS.md              # 给 AI / 接手者的开发说明书（构建、验证、铁律、约定）
+├── README.md
 ├── CMakeLists.txt
+├── cmake/
+│   └── toolchain-mingw64.cmake  # Linux 上交叉编译 Windows
 ├── assets/                # 示例分子（.mol / .pdb）
 │   └── data/
 │       └── elements.json  # 元素数据库（21 个元素）
-├── docs/images/           # 截图（可选）
+├── devlog/                # 每日开发日志与说明文档
+│   └── day15-元素数据库/
 ├── external/
 │   ├── glad/              # 随仓库提供
 │   ├── json/              # nlohmann/json 单头文件，随仓库提供
-│   └── imgui/             # 需自行 clone，已被 gitignore
+│   ├── glm/               # 随仓库提供（Web 构建兜底）
+│   ├── imgui/             # 需自行 clone，已被 gitignore
+│   └── glfw/              # 交叉编译时才 clone，已被 gitignore
 └── src/
-    ├── main.cpp           # 主循环、相机、绘制
+    ├── main.cpp           # 应用状态、回调、ImGui 面板、主循环
     ├── picking.h          # 射线拾取
     ├── path_utils.h       # 跨平台资源路径解析
+    ├── file_dialog.h      # 系统文件对话框（Win32 / zenity / osascript）
     ├── molfile.h          # .mol / .pdb 解析
     ├── molecule.h         # 分子数据结构与 CPK 配色
     ├── sphere.h           # 球体网格生成
@@ -269,6 +310,15 @@ molecule-viewer/
     │   └── element.cpp    # JSON 解析、校验、电子排布、离子推算
     └── shaders/           # GLSL 源码
 ```
+
+## 开发日志
+
+`devlog/` 下每天一个 `dayNN-主题/` 子目录，里面是当天的「使用说明」+「实现原理」两份文档，
+索引见 [devlog/README.md](devlog/README.md)。它回答「那天为什么这么改」，`git log` 回答「改了哪些行」。
+
+| 天 | 主题 | 目录 |
+|---|---|---|
+| 15 | 元素数据库（Atomotheca 模块第 1 天） | [day15-元素数据库](devlog/day15-元素数据库/) |
 
 ## 许可证
 

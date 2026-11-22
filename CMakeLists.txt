@@ -35,29 +35,61 @@ endif()
 if(NOT EMSCRIPTEN)
 
     # --------------------------------------------------------
-    #  GLFW
-    #  优先用 external/glfw 源码：
-    #    - Linux / macOS / Windows 行为完全一致
-    #    - MinGW 交叉编译时，系统里没有 Windows 版 GLFW，
-    #      只能靠源码编出静态库
+    #  GLFW 的选择顺序
+    #
+    #  1. 原生构建（Linux / macOS / MSVC）→ 优先系统库
+    #  2. 交叉编译（MinGW）或系统库没找到 → external/glfw 源码编译
+    #
+    #  为什么原生构建不再优先源码：
+    #    GLFW 3.4 的 X11 后端在配置阶段就 hard require 了四个开发包：
+    #      libxinerama-dev  libxcursor-dev  libxi-dev  libxrandr-dev
+    #    只装 libx11-dev 的机器会直接死在
+    #      "Xinerama headers not found; install libxinerama development package"
+    #    而 apt 装的 libglfw3-dev 已经把这些依赖编进去了，直接用最省事。
+    #
+    #  为什么 MinGW 必须用源码：
+    #    系统里没有 Windows 版的 GLFW，交叉编译只能自己编静态库。
+    #
+    #  历史坑（务必别再犯）：
+    #    这段代码曾无条件 set(GLFW_BUILD_X11 OFF) / (WAYLAND OFF)，
+    #    本意是加快交叉编译的配置。结果 Linux 原生构建编出来的 GLFW
+    #    只剩 null 后端 —— 能编译、能链接，运行时 glfwInit() 立刻失败，
+    #    报错只有一句"GLFW 初始化失败"，看不出任何原因。
     # --------------------------------------------------------
-    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/glfw/CMakeLists.txt)
+    if(NOT CMAKE_CROSSCOMPILING)
+        find_package(glfw3 3.3 QUIET)
+    endif()
+
+    if(glfw3_FOUND AND NOT CMAKE_CROSSCOMPILING)
+
+        message(STATUS "  GLFW       : 系统库 ${glfw3_VERSION}")
+
+    elseif(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/glfw/CMakeLists.txt)
 
         set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
         set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
         set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
         set(GLFW_INSTALL        OFF CACHE BOOL "" FORCE)
-        # 桌面 Linux 默认会去找 X11/Wayland，交叉编译 Windows 时无关但会拖慢配置
-        set(GLFW_BUILD_WAYLAND  OFF CACHE BOOL "" FORCE)
-        set(GLFW_BUILD_X11      OFF CACHE BOOL "" FORCE)
+
+        # 目标不是 Windows 时才允许编 X11 / Wayland 后端；
+        # 交叉编译 Windows 时这两个后端毫无意义，关掉能省配置时间。
+        if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+            set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+            set(GLFW_BUILD_X11     OFF CACHE BOOL "" FORCE)
+        else()
+            # 必须显式清缓存：旧版本用 FORCE 把 OFF 写进了 CMakeCache.txt，
+            # 单纯"不再 set"是没用的，缓存里的 OFF 会一直生效。
+            unset(GLFW_BUILD_WAYLAND CACHE)
+            unset(GLFW_BUILD_X11     CACHE)
+        endif()
 
         add_subdirectory(external/glfw EXCLUDE_FROM_ALL)
         message(STATUS "  GLFW       : 源码编译 (external/glfw)")
 
     else()
 
+        # 走到这里说明系统没有、源码也没有，让 find_package 给出标准报错
         find_package(glfw3 3.3 REQUIRED)
-        message(STATUS "  GLFW       : 系统库")
 
     endif()
 

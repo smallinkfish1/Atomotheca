@@ -1,7 +1,7 @@
 // src/orbital/element.h
 // Atomotheca 数据层：亚层 / 离子 / 元素 / 元素数据库 的声明。
 //
-// 分层铁律（Prompt 第 7 节）：
+// 分层铁律（AGENTS.md「代码风格」与「架构铁律」）：
 //   本文件与 element.cpp 都【不允许】include <glad/glad.h>、<GLFW/glfw3.h>。
 //   数据层不碰任何 OpenGL 状态，换渲染后端时这个文件一行都不用改。
 //

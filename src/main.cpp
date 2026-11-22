@@ -1,14 +1,15 @@
 // src/main.cpp
-// 第 18 天：3D s / p 轨道（Atomotheca 模块第 4 天）。
+// 第 19 天：3D d 轨道（Atomotheca 模块第 5 天）。
 //
 // 主要改动：
-//   1. 新增 src/orbital/shape.{h,cpp}：s 球 / p 双瓣的网格生成（纯数学，不碰 OpenGL）
-//   2. 新增 orbital.vert / orbital.frag：Fresnel 透明度 + 双面法线翻面
-//   3. 渲染拆成「不透明阶段」和「透明阶段」：原子与键先画，轨道后画
-//      —— 透明物体必须后画、从远到近、且不写深度，否则前后乱穿
-//   4. 新增 src/ui/orbital_panel.{h,cpp}：控制面板里的形状选择段
-//   5. 新增 --dump-orbital，用 ASCII 剖面核对几何而不开窗口
+//   1. orbital/shape.{h,cpp} 扩到 9 个形状：新增 d_xy / d_yz / d_xz / d_x2-y2 / d_z2，
+//      走通用路径 buildHarmonicShape()（真的按球谐函数变形球面）
+//   2. ShapeMesh 增加逐瓣的索引区间 lobeFirst / lobeSize —— d 的腰环和两极瓣
+//      三角形数差很多，不能再用「总长 ÷ 瓣数」
+//   3. 渲染按瓣取偏移量画（逻辑没变，只是偏移量来源变了）
+//   4. 面板的形状选择从一排单选按钮改成下拉框（9 个按钮放不下一行）
 //
+// 第 18 天（沿用）：s / p 轨道形状 + 半透明两阶段渲染。
 // 第 17 天（沿用）：2D 能级图。
 // 第 16 天（沿用）：Atomotheca 元素周期表面板。
 // 第 15 天（沿用）：Atomotheca 数据层——元素数据库（JSON 驱动）。
@@ -60,7 +61,7 @@
 #include <vector>
 
 #ifndef APP_VERSION
-#  define APP_VERSION "0.2.0-dev"
+#  define APP_VERSION "0.2.1-dev"
 #endif
 
 const unsigned int SCR_WIDTH  = 1100;
@@ -112,17 +113,19 @@ struct AppState
     GLsizei sphereIndexCount = 0;
     GLsizei cylIndexCount    = 0;
 
-    // ---------- 第 18 天：轨道形状的 GPU 资源 ----------
-    // 每个形状一份 VBO/EBO（4 个）。看着比"一个网格 + 旋转矩阵"浪费，
-    // 但对称轴直接烘进顶点里，渲染时不用再维护 4 个旋转矩阵，
+    // ---------- 第 18 天：轨道形状的 GPU 资源（第 19 天扩到 9 个）----------
+    // 每个形状一份 VBO/EBO。看着比"一个网格 + 旋转矩阵"浪费，
+    // 但对称轴直接烘进顶点里，渲染时不用再维护一堆旋转矩阵，
     // 也避免了"p_y 的模型矩阵写错 90°"这类只有肉眼能发现的 bug。
     unsigned int orbVAO[orbital::SHAPE_COUNT] = {};
     unsigned int orbVBO[orbital::SHAPE_COUNT] = {};
     unsigned int orbEBO[orbital::SHAPE_COUNT] = {};
 
-    // 每瓣的索引数（同一形状内各瓣相同）与瓣数
-    GLsizei orbLobeIndexCount[orbital::SHAPE_COUNT] = {};
-    int     orbLobeCount[orbital::SHAPE_COUNT]      = {};
+    // 每瓣在 EBO 里的区间。第 18 天 s / p 每瓣索引数相同，用「总长 ÷ 瓣数」够用；
+    // d 的腰环和两极瓣三角形数差很多（见 --dump-orbital 的 tris/lobe），
+    // 必须逐瓣记账，否则偏移量会全部错位。
+    std::vector<int> orbLobeFirst[orbital::SHAPE_COUNT];
+    std::vector<int> orbLobeSize[orbital::SHAPE_COUNT];
 
     // 瓣心（单位尺度，3 个 float 一组）。渲染时乘上 model 得到世界坐标，
     // 按到相机的距离从远到近排序 —— 半透明不排序就会前后乱穿。
@@ -932,7 +935,7 @@ static void DrawControlPanel()
         ImGui::TextDisabled("Tab       : show / hide panel");
         ImGui::TextDisabled("P         : periodic table");
         ImGui::TextDisabled("L         : energy levels");
-        ImGui::TextDisabled("O         : s / p orbital shape");
+        ImGui::TextDisabled("O         : orbital shape (s / p / d)");
         ImGui::TextDisabled("Esc       : clear selection");
     }
     ImGui::End();
@@ -1122,7 +1125,7 @@ static void drawOrbitals(const glm::mat4& view, const glm::mat4& projection,
     AppState& app = g_app;
     const int kind = static_cast<int>(g_orbital.kind);
 
-    if (app.orbitalShader == nullptr || app.orbLobeCount[kind] <= 0)
+    if (app.orbitalShader == nullptr || app.orbLobeCenter[kind].empty())
         return;
 
     // 轨道尺寸跟着分子走：换分子时视觉比例不变。
@@ -1133,18 +1136,18 @@ static void drawOrbitals(const glm::mat4& view, const glm::mat4& projection,
     model = g_spinMatrix * model;      // 跟着自动旋转一起转，否则会"漂"在分子外面
 
     // 瓣心（单位尺度）变换到世界坐标，按到相机的距离从远到近排序。
-    // 一瓣最多 2 个，冒泡足够 —— 而且渲染循环里不许动态分配，
-    // 所以用固定长度数组而不是 std::vector。
+    // 瓣数最多 6 个（d_z2 是两极 + 腰环），冒泡足够 ——
+    // 而且渲染循环里不许动态分配，所以用固定长度数组而不是 std::vector。
     struct LobeSort
     {
         float dist;
         int   index;
     };
-    LobeSort lobes[4];
+    LobeSort lobes[8];
     int      count = 0;
 
     const std::vector<float>& centers = app.orbLobeCenter[kind];
-    for (std::size_t i = 0; i + 2 < centers.size() && count < 4; i += 3)
+    for (std::size_t i = 0; i + 2 < centers.size() && count < 8; i += 3)
     {
         const glm::vec4 w = model * glm::vec4(centers[i], centers[i + 1], centers[i + 2], 1.0f);
         lobes[count].dist  = glm::length(glm::vec3(w) - g_cameraPos);
@@ -1176,22 +1179,21 @@ static void drawOrbitals(const glm::mat4& view, const glm::mat4& projection,
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);
 
-    const GLsizei perLobe = app.orbLobeIndexCount[kind];
-
     for (int i = 0; i < count; ++i)
     {
-        // 每瓣的索引在 EBO 里是连续一段，所以用偏移量就能只画这一瓣
-        const std::size_t first = static_cast<std::size_t>(lobes[i].index) *
-                                  static_cast<std::size_t>(perLobe);
-        const void* offset = reinterpret_cast<const void*>(first * sizeof(unsigned int));
+        // 每瓣的索引在 EBO 里是连续一段，起点和长度都在建网格时记好了
+        const int   lobe  = lobes[i].index;
+        const void* offset = reinterpret_cast<const void*>(
+            static_cast<std::size_t>(app.orbLobeFirst[kind][lobe]) * sizeof(unsigned int));
+        const GLsizei lobeIndexCount = static_cast<GLsizei>(app.orbLobeSize[kind][lobe]);
 
         // 远的那半张球面先落缓冲：剔除正面，只留背面
         glCullFace(GL_FRONT);
-        glDrawElements(GL_TRIANGLES, perLobe, GL_UNSIGNED_INT, offset);
+        glDrawElements(GL_TRIANGLES, lobeIndexCount, GL_UNSIGNED_INT, offset);
 
         // 再画朝着相机的正面
         glCullFace(GL_BACK);
-        glDrawElements(GL_TRIANGLES, perLobe, GL_UNSIGNED_INT, offset);
+        glDrawElements(GL_TRIANGLES, lobeIndexCount, GL_UNSIGNED_INT, offset);
     }
 
     // 状态必须还原。忘了 glDepthMask(GL_TRUE) 的后果特别隐蔽：
@@ -1352,9 +1354,9 @@ static void setupMeshes()
     glBindVertexArray(0);
 }
 
-// ==================== 第 18 天：轨道形状网格 ====================
-// 4 个形状在启动时一次建好。几何是 orbital/shape.cpp 算出来的纯数学产物，
-// 这里只做两件事：上传显存、记下每瓣的索引范围（半透明排序时要分瓣画）。
+// ==================== 第 18 天：轨道形状网格（第 19 天扩到 9 个）====================
+// 9 个形状在启动时一次建好。几何是 orbital/shape.cpp 算出来的纯数学产物，
+// 这里只做两件事：上传显存、记下每瓣的索引区间（半透明排序时要分瓣画）。
 static void setupOrbitalMeshes()
 {
     AppState& app = g_app;
@@ -1368,17 +1370,9 @@ static void setupOrbitalMeshes()
         orbital::ShapeMesh mesh;
         orbital::buildShape(kind, 1.0f, mesh);
 
-        const int lobes = static_cast<int>(mesh.lobeCenters.size() / 3);
-
-        app.orbLobeCount[i]  = lobes;
         app.orbLobeCenter[i] = mesh.lobeCenters;
-
-        // 同一形状里每瓣都是同一个球，索引数必然相等，
-        // 所以只存「一瓣多少索引」，第 k 瓣用 k * perLobe 的偏移量取。
-        app.orbLobeIndexCount[i] =
-            (lobes > 0)
-                ? static_cast<GLsizei>(mesh.indices.size() / static_cast<std::size_t>(lobes))
-                : 0;
+        app.orbLobeFirst[i]  = mesh.lobeFirst;
+        app.orbLobeSize[i]   = mesh.lobeSize;
 
         glGenVertexArrays(1, &app.orbVAO[i]);
         glGenBuffers(1, &app.orbVBO[i]);
@@ -1426,7 +1420,7 @@ int main(int argc, char** argv)
     bool        dumpTable = false;   // --dump-table：打印 ASCII 周期表
     std::string dumpLevelsSymbol;    // --dump-levels 的目标元素符号
     bool        dumpOrbital    = false;   // 是否出现 --dump-orbital
-    bool        dumpOrbitalAll = false;   // 不带形状参数 = 四种形状全打
+    bool        dumpOrbitalAll = false;   // 不带形状参数 = 九个形状全打
     orbital::ShapeKind dumpOrbitalKind = orbital::ShapeKind::S;
 
     for (int i = 1; i < argc; ++i)
@@ -1451,10 +1445,12 @@ int main(int argc, char** argv)
                 << "  --dump-levels <符号> 以 ASCII 打印能级图（中性原子 + 所有常见离子）。\n"
                 << "                 从上到下是能量由高到低，所以 4s 会出现在 3d 下面。\n"
                 << "                 例: --dump-levels Fe\n\n"
-                << "  --dump-orbital [形状]  打印 s / p 轨道网格的自检结果与 ASCII 剖面。\n"
-                << "                 形状可取 s / px / py / pz，省略则四种全打。\n"
-                << "                 检查顶点数、包围盒、法线长度、三角形绕序。\n"
-                << "                 例: --dump-orbital   --dump-orbital pz\n\n"
+                << "  --dump-orbital [形状]  打印轨道网格的自检结果与 ASCII 剖面。\n"
+                << "                 形状可取 s / px / py / pz /\n"
+                << "                          dxy / dyz / dxz / dx2y2 / dz2，省略则九个全打。\n"
+                << "                 检查顶点数、包围盒、法线长度、三角形绕序、\n"
+                << "                 顶点是否落在解析曲面上、有向体积是否对得上。\n"
+                << "                 例: --dump-orbital   --dump-orbital dz2\n\n"
                 << "操作:\n"
                 << "  左键拖拽     旋转视角\n"
                 << "  左键单击     选中原子\n"
@@ -1464,7 +1460,7 @@ int main(int argc, char** argv)
                 << "  Tab          显示 / 隐藏控制面板\n"
                 << "  P            显示 / 隐藏元素周期表\n"
                 << "  L            显示 / 隐藏能级图\n"
-                << "  O            显示 / 隐藏 s / p 轨道形状\n"
+                << "  O            显示 / 隐藏轨道形状（s / p / d）\n"
                 << "  Esc          取消选择；没有选中时退出\n";
             return 0;
         }

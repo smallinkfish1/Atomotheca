@@ -8,7 +8,7 @@ Atomotheca（原子典）是一个用 C++17 + OpenGL 3.3 手写的分子与原�
 
 - 学习导向的桌面工具，不是工业级产品。不追求渲染百万原子，不做量子化学计算、不做分子动力学。
 - 分子查看器已完成：`.mol`(V2000) / `.pdb` 加载、球棍与空间填充模型、轨道相机、Blinn-Phong 双光源、ImGui 面板、射线拾取、键长键角测量、拖拽与文件对话框、无键表时按共价半径推断化学键。
-- Atomotheca 模块进行中：已完成 JSON 元素库（21 个元素，H–Ca + Fe）、电子排布、离子推算；待做元素周期表面板、2D 能级图、s/p/d 轨道 3D、电子云点云。
+- Atomotheca 模块进行中：已完成 JSON 元素库（36 个元素，H–Kr，前四周期完整）、电子排布、离子推算、元素周期表面板（18 族网格 + 族号表头 + 点击详情 + 离子切换）；待做 2D 能级图、s/p/d 轨道 3D、电子云点云。
 - 化学数据一律放 `assets/data/*.json`，C++ 代码里禁止硬编码大段化学数据。
 
 ### 技术栈（已锁定，不要更换）
@@ -74,18 +74,22 @@ cmake --build build-web -j$(nproc)
 ./build/molecule_viewer --dump O      # 期望 1s2 2s2 2p4
 ./build/molecule_viewer --dump fe     # 小写应自动纠正
 ./build/molecule_viewer --dump Xx     # 期望退出码 255 并列出可用符号
+./build/molecule_viewer --dump Cr     # 期望 3d5 4s1（例外元素），Cr3+ 为 3d3
+./build/molecule_viewer --dump Cu     # 期望 3d10 4s1（例外元素），Cu+ 为 3d10
+./build/molecule_viewer --dump-table  # 期望 4 行 18 族全满，H 在第 1 族、He 在第 18 族、Kr 在第 4 周期第 18 族
 ```
 
 - `--dump` 是纯数据层验证，不打开窗口，可在无显卡环境跑。改数据层必须跑这套。
 - 改渲染、UI、交互：编译通过不足以证明正确，必须请用户在真实桌面会话里启动一次。
 - 代理所在沙箱通常**没有 GPU、没有可用 GLX**（无 `/dev/dri`，`glxinfo -B` 自己就报 `GLX: Failed to create context`）。所以涉及窗口的结论一律写「未实机验证」，不许写成「已验证」。
-- 21 个元素逐个对照课本核对过排布式；新增元素时同样逐个核，不要只看总数。
+- 36 个元素逐个对照课本核对过排布式；新增元素时同样逐个核，不要只看总数。
+- 例外必须显式写进 JSON：Cr 是 `3d5 4s1`、Cu 是 `3d10 4s1`，都不是 Madelung 规则的产物。数据层不做「规则修正」，算出来的和权威值不一致时以 JSON 为准。
 
 ## 目录结构
 
 ```
 src/
-├── main.cpp          1445 行  应用状态、GLFW 回调、ImGui 面板、主循环（待拆分）
+├── main.cpp          1502 行  应用状态、GLFW 回调、ImGui 面板、主循环（待拆分）
 ├── shader.h           178     着色器编译与 uniform 封装
 ├── sphere.h           105     UV 球网格生成（纯数学）
 ├── cylinder.h          80     圆柱侧面网格
@@ -96,9 +100,11 @@ src/
 ├── file_dialog.h      267     系统文件对话框（Win32 / zenity / osascript）
 ├── orbital/element.h  143     亚层 / 离子 / 元素 / 数据库声明
 ├── orbital/element.cpp 537    JSON 解析、校验、电子排布、离子推算
+├── ui/periodic_table.h  39    周期表面板状态与入口声明
+├── ui/periodic_table.cpp 340  18 族网格 + 族号表头、格子自绘、详情区、ASCII 版
 └── shaders/                   sphere.vert/.frag、cylinder.vert/.frag
 
-assets/            示例分子 .mol / .pdb，以及 data/elements.json
+assets/            示例分子 .mol / .pdb，以及 data/elements.json（36 个元素）
 devlog/dayNN-主题/  每日交付文档（md 进 git，zip 不进）
 external/          glad、json、glm 随仓库；imgui、glfw 由使用者 clone
 ```
@@ -140,8 +146,8 @@ external/          glad、json、glm 随仓库；imgui、glfw 由使用者 clone
 | Day 7–9 | 球棍模型、空间填充与 Z-fighting、CPK 配色与双光源 | 完成 |
 | Day 10–14 | .mol/.pdb 解析、ImGui 面板、射线拾取、跨平台路径、Emscripten | 完成（Web 仅编译级） |
 | 附加 | 拖拽与文件对话框、三平台 CI、MinGW 交叉编译 | 完成 |
-| Day 15 | 元素数据库 + 电子排布（Atomotheca 第 1 天） | 完成，最新 |
-| Day 16 | ImGui 元素周期表面板（按周期/族排布，点击显示排布式与离子切换） | 待开始 |
+| Day 15 | 元素数据库 + 电子排布（Atomotheca 第 1 天） | 完成 |
+| Day 16 | ImGui 元素周期表面板（18 族网格、族号表头、点击详情、离子切换、`--dump-table`） | 完成，最新 |
 | Day 17 | 2D 能级图（`ImDrawList` 画方框、↑↓ 箭头、4s 在 3d 下方） | 待开始 |
 | Day 18 | 3D s / p 轨道（球 + 哑铃，半透明，p_x/p_y/p_z 红绿蓝） | 待开始 |
 | Day 19 | 3D d 轨道与球谐函数（d_xy / d_yz / d_z²，UI 下拉切换） | 待开始 |
@@ -157,7 +163,7 @@ Day 20 之后做架构拆分，见下面技术债。
 | 应用状态没有归属 | `g_app` / `g_ui` / `g_selected` / 相机角度都是文件级全局变量，回调直接读写 | 拆分前先定数据流归属，否则只是搬代码 |
 | 透明渲染未排序 | 第 18 天轨道需要半透明 | Day 18 必须处理：先不透明，再按距离画透明，关闭深度写入 |
 | `element.cpp` 按值返回 `std::vector<Subshell>` | 调用频率低，暂无问题 | Day 17 每帧画能级图时改为缓存 |
-| `elements.json` 只有 21 个元素 | 缺 21–25、27–36 号 | Day 16 周期表第 4 周期会有空档，等用户定：补数据还是画空位 |
+| `elements.json` 只到 Kr（Z=36） | 5–7 周期未收录，f 区完全没有 | 界面按 `maxPeriod` 自适应，会显示 5 行淡框「未收录」；要扩需同时设计镧系锕系的行外摆放 |
 | Web / WASM 未实机验证 | 只有编译级结论 | 后续在 CI 或本地补 |
 | Windows MSVC 产物未实机验证 | CI 编过，未双击运行 | 需要一台 Windows |
 | 中文 UI 缺字形 | ImGui 默认字体不含中文 | 面板标签暂用英文；要中文得加载字体文件 |

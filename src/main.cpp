@@ -1,7 +1,12 @@
 // src/main.cpp
-// 第 15 天：Atomotheca 数据层——元素数据库（JSON 驱动）。
+// 第 16 天：Atomotheca 元素周期表面板（模块第 2 天）。
 //
 // 主要改动：
+//   1. 新增 src/ui/periodic_table.{h,cpp}：18 族 × N 周期网格、点击详情、离子切换
+//   2. 面板状态收进 ui::PeriodicTableState，不往 main.cpp 的全局变量上再加灯
+//   3. P 键显示 / 隐藏周期表；新增 --dump-table，用 ASCII 核对布局而不开窗口
+//
+// 第 15 天（沿用）：Atomotheca 数据层——元素数据库（JSON 驱动）。
 //   1. 引入 nlohmann/json，元素数据外置到 assets/data/elements.json
 //   2. 新增 src/orbital/element.h + element.cpp：解析、校验、电子排布、离子推算
 //   3. 启动时加载数据库；新增 --dump <元素符号> 命令行参数用于验证数据层
@@ -32,6 +37,7 @@
 #include "path_utils.h"
 #include "file_dialog.h"     // 跨平台文件选择对话框（拖拽之外的第二入口）
 #include "orbital/element.h" // Atomotheca 数据层（不依赖 OpenGL）
+#include "ui/periodic_table.h" // 第 16 天：元素周期表面板（只依赖 ImGui + 数据层）
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -147,6 +153,11 @@ static bool loadElementDatabase(std::string* error)
     }
     return g_elements.loadFromFile(path, error);
 }
+
+// ==================== 周期表面板状态 ====================
+// 面板自己的状态（看哪个元素、哪个离子、开不开）归面板，
+// 不塞进 UiState —— 那里放的是分子显示相关的东西，混在一起会让拆分更难。
+ui::PeriodicTableState g_periodic;
 
 // ==================== 选中状态 ====================
 std::vector<int> g_selected;
@@ -518,6 +529,11 @@ static void key_callback(GLFWwindow* window, int key, int /*scancode*/,
     {
         g_ui.showPanel = !g_ui.showPanel;
     }
+    else if (key == GLFW_KEY_P)
+    {
+        // 第 16 天：周期表是独立窗口，单独一个开关，不和 Tab 绑在一起
+        g_periodic.visible = !g_periodic.visible;
+    }
     else if (key == GLFW_KEY_ESCAPE)
     {
         if (!g_selected.empty())
@@ -756,6 +772,20 @@ static void DrawControlPanel()
 
         ImGui::Checkbox("Labels (selected)",  &g_ui.showSelectedLabels);
         ImGui::Checkbox("Labels (all atoms)", &g_ui.showAllLabels);
+
+        // 第 16 天：周期表开关。数据库没加载成功时禁用，而不是让用户点开一个空窗口。
+        if (g_elements.empty())
+        {
+            ImGui::BeginDisabled();
+            ImGui::Checkbox("Periodic table  (P)", &g_periodic.visible);
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::TextDisabled("no data");
+        }
+        else
+        {
+            ImGui::Checkbox("Periodic table  (P)", &g_periodic.visible);
+        }
         ImGui::Spacing();
 
         ImGui::TextColored(ImVec4(0.55f, 0.80f, 1.0f, 1.0f), "ANIMATION");
@@ -822,6 +852,7 @@ static void DrawControlPanel()
 #endif
         ImGui::TextDisabled("Space     : switch model");
         ImGui::TextDisabled("Tab       : show / hide panel");
+        ImGui::TextDisabled("P         : periodic table");
         ImGui::TextDisabled("Esc       : clear selection");
     }
     ImGui::End();
@@ -916,6 +947,9 @@ static void renderFrame()
 
     if (g_ui.showPanel)
         DrawControlPanel();
+
+    // 第 16 天：周期表是独立窗口，跟控制面板的显隐互不影响
+    ui::drawPeriodicTable(g_elements, g_periodic);
 
     // ---------- 相机 ----------
     // 注意：必须放在面板之后。
@@ -1116,6 +1150,7 @@ int main(int argc, char** argv)
 
 #ifndef __EMSCRIPTEN__
     std::string dumpSymbol;   // --dump 的目标元素符号，空表示不 dump
+    bool        dumpTable = false;   // --dump-table：打印 ASCII 周期表
 
     for (int i = 1; i < argc; ++i)
     {
@@ -1125,12 +1160,15 @@ int main(int argc, char** argv)
         {
             std::cout
                 << "Molecule Viewer v" << APP_VERSION << "\n\n"
-                << "用法: molecule_viewer [分子文件] [--dump <元素符号>]\n\n"
+                << "用法: molecule_viewer [分子文件] [--dump <元素符号>] [--dump-table]\n\n"
                 << "  [分子文件]   支持 .mol (V2000) 和 .pdb\n"
                 << "               省略时默认加载 assets/methane.mol\n\n"
                 << "  --dump <符号>  打印元素的电子排布与所有常见离子，然后退出。\n"
                 << "                 用来单独验证数据层，不打开窗口。\n\n"
                 << "                 例: --dump O   --dump Fe\n\n"
+                << "  --dump-table   以 ASCII 打印周期表（18 族 × N 周期），然后退出。\n"
+                << "                 用来核对「按 period/group 定位」的排布是否正确，\n"
+                << "                 同样不需要显卡。'.' 表示真实存在但数据库没收录。\n\n"
                 << "操作:\n"
                 << "  左键拖拽     旋转视角\n"
                 << "  左键单击     选中原子\n"
@@ -1138,6 +1176,7 @@ int main(int argc, char** argv)
                 << "  滚轮         缩放\n"
                 << "  空格         切换 球棍 / 空间填充 模型\n"
                 << "  Tab          显示 / 隐藏控制面板\n"
+                << "  P            显示 / 隐藏元素周期表\n"
                 << "  Esc          取消选择；没有选中时退出\n";
             return 0;
         }
@@ -1156,6 +1195,13 @@ int main(int argc, char** argv)
                 return -1;
             }
             dumpSymbol = argv[++i];
+            continue;
+        }
+
+        // --dump-table 和 --dump 一样是排他执行：打印完就退出
+        if (arg == "--dump-table")
+        {
+            dumpTable = true;
             continue;
         }
 
@@ -1211,6 +1257,17 @@ int main(int argc, char** argv)
         }
 
         std::cout << orbital::describe(*element);
+        return 0;
+    }
+
+    // ---------- --dump-table ----------
+    // 窗口在这一层验证不了（开发环境没有 GL 上下文），
+    // 但排布逻辑是纯计算，用终端输出就能核对 18 族的定位对不对。
+    if (dumpTable)
+    {
+        if (!dbOk)
+            return -1;
+        ui::printPeriodicTableAscii(g_elements);
         return 0;
     }
 #else

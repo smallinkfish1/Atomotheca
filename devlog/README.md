@@ -36,6 +36,7 @@ devlog/
 | 天 | 主题 | 目录 | 主要产出 |
 |---|---|---|---|
 | 15 | 元素数据库（Atomotheca 模块第 1 天） | [day15-元素数据库](day15-元素数据库/) | `src/orbital/element.{h,cpp}`、`assets/data/elements.json`、`--dump` |
+| 16 | 元素周期表面板（模块第 2 天） | [day16-元素周期表](day16-元素周期表/) | `src/ui/periodic_table.{h,cpp}`、族号表头、P 键开关、`--dump-table`、元素库补到 36 个 |
 
 ## 每天收尾时我会做三件事
 

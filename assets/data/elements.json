@@ -296,6 +296,91 @@
       "commonIons": [2]
     },
     {
+      "symbol": "Sc",
+      "name": "Scandium",
+      "nameZh": "钪",
+      "atomicNumber": 21,
+      "atomicMass": 44.956,
+      "period": 4,
+      "group": 3,
+      "category": "transition-metal",
+      "cpkColor": [0.90, 0.90, 0.90],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 1 },
+        { "n": 4, "l": 0, "e": 2 }
+      ],
+      "commonIons": [3]
+    },
+    {
+      "symbol": "Ti",
+      "name": "Titanium",
+      "nameZh": "钛",
+      "atomicNumber": 22,
+      "atomicMass": 47.867,
+      "period": 4,
+      "group": 4,
+      "category": "transition-metal",
+      "cpkColor": [0.75, 0.76, 0.78],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 2 },
+        { "n": 4, "l": 0, "e": 2 }
+      ],
+      "commonIons": [3, 4]
+    },
+    {
+      "symbol": "V",
+      "name": "Vanadium",
+      "nameZh": "钒",
+      "atomicNumber": 23,
+      "atomicMass": 50.942,
+      "period": 4,
+      "group": 5,
+      "category": "transition-metal",
+      "cpkColor": [0.65, 0.65, 0.67],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 3 },
+        { "n": 4, "l": 0, "e": 2 }
+      ],
+      "commonIons": [3, 5]
+    },
+    {
+      "symbol": "Cr",
+      "name": "Chromium",
+      "nameZh": "铬",
+      "atomicNumber": 24,
+      "atomicMass": 51.996,
+      "period": 4,
+      "group": 6,
+      "category": "transition-metal",
+      "cpkColor": [0.54, 0.60, 0.78],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 5 },
+        { "n": 4, "l": 0, "e": 1 }
+      ],
+      "commonIons": [3, 6]
+    },
+    {
+      "symbol": "Mn",
+      "name": "Manganese",
+      "nameZh": "锰",
+      "atomicNumber": 25,
+      "atomicMass": 54.938,
+      "period": 4,
+      "group": 7,
+      "category": "transition-metal",
+      "cpkColor": [0.61, 0.48, 0.78],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 5 },
+        { "n": 4, "l": 0, "e": 2 }
+      ],
+      "commonIons": [2, 7]
+    },
+    {
       "symbol": "Fe",
       "name": "Iron",
       "nameZh": "铁",
@@ -311,6 +396,176 @@
         { "n": 4, "l": 0, "e": 2 }
       ],
       "commonIons": [2, 3]
+    },
+    {
+      "symbol": "Co",
+      "name": "Cobalt",
+      "nameZh": "钴",
+      "atomicNumber": 27,
+      "atomicMass": 58.933,
+      "period": 4,
+      "group": 9,
+      "category": "transition-metal",
+      "cpkColor": [0.94, 0.56, 0.63],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 7 },
+        { "n": 4, "l": 0, "e": 2 }
+      ],
+      "commonIons": [2, 3]
+    },
+    {
+      "symbol": "Ni",
+      "name": "Nickel",
+      "nameZh": "镍",
+      "atomicNumber": 28,
+      "atomicMass": 58.693,
+      "period": 4,
+      "group": 10,
+      "category": "transition-metal",
+      "cpkColor": [0.31, 0.82, 0.31],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 8 },
+        { "n": 4, "l": 0, "e": 2 }
+      ],
+      "commonIons": [2]
+    },
+    {
+      "symbol": "Cu",
+      "name": "Copper",
+      "nameZh": "铜",
+      "atomicNumber": 29,
+      "atomicMass": 63.546,
+      "period": 4,
+      "group": 11,
+      "category": "transition-metal",
+      "cpkColor": [0.78, 0.50, 0.20],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 10 },
+        { "n": 4, "l": 0, "e": 1 }
+      ],
+      "commonIons": [1, 2]
+    },
+    {
+      "symbol": "Zn",
+      "name": "Zinc",
+      "nameZh": "锌",
+      "atomicNumber": 30,
+      "atomicMass": 65.380,
+      "period": 4,
+      "group": 12,
+      "category": "transition-metal",
+      "cpkColor": [0.49, 0.50, 0.69],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 10 },
+        { "n": 4, "l": 0, "e": 2 }
+      ],
+      "commonIons": [2]
+    },
+    {
+      "symbol": "Ga",
+      "name": "Gallium",
+      "nameZh": "镓",
+      "atomicNumber": 31,
+      "atomicMass": 69.723,
+      "period": 4,
+      "group": 13,
+      "category": "post-transition-metal",
+      "cpkColor": [0.76, 0.56, 0.56],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 10 },
+        { "n": 4, "l": 0, "e": 2 }, { "n": 4, "l": 1, "e": 1 }
+      ],
+      "commonIons": [3]
+    },
+    {
+      "symbol": "Ge",
+      "name": "Germanium",
+      "nameZh": "锗",
+      "atomicNumber": 32,
+      "atomicMass": 72.630,
+      "period": 4,
+      "group": 14,
+      "category": "metalloid",
+      "cpkColor": [0.40, 0.56, 0.56],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 10 },
+        { "n": 4, "l": 0, "e": 2 }, { "n": 4, "l": 1, "e": 2 }
+      ],
+      "commonIons": [4]
+    },
+    {
+      "symbol": "As",
+      "name": "Arsenic",
+      "nameZh": "砷",
+      "atomicNumber": 33,
+      "atomicMass": 74.922,
+      "period": 4,
+      "group": 15,
+      "category": "metalloid",
+      "cpkColor": [0.74, 0.50, 0.89],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 10 },
+        { "n": 4, "l": 0, "e": 2 }, { "n": 4, "l": 1, "e": 3 }
+      ],
+      "commonIons": [-3, 3, 5]
+    },
+    {
+      "symbol": "Se",
+      "name": "Selenium",
+      "nameZh": "硒",
+      "atomicNumber": 34,
+      "atomicMass": 78.971,
+      "period": 4,
+      "group": 16,
+      "category": "nonmetal",
+      "cpkColor": [1.00, 0.63, 0.00],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 10 },
+        { "n": 4, "l": 0, "e": 2 }, { "n": 4, "l": 1, "e": 4 }
+      ],
+      "commonIons": [-2, 4, 6]
+    },
+    {
+      "symbol": "Br",
+      "name": "Bromine",
+      "nameZh": "溴",
+      "atomicNumber": 35,
+      "atomicMass": 79.904,
+      "period": 4,
+      "group": 17,
+      "category": "halogen",
+      "cpkColor": [0.65, 0.16, 0.16],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 10 },
+        { "n": 4, "l": 0, "e": 2 }, { "n": 4, "l": 1, "e": 5 }
+      ],
+      "commonIons": [-1]
+    },
+    {
+      "symbol": "Kr",
+      "name": "Krypton",
+      "nameZh": "氪",
+      "atomicNumber": 36,
+      "atomicMass": 83.798,
+      "period": 4,
+      "group": 18,
+      "category": "noble-gas",
+      "cpkColor": [0.36, 0.72, 0.82],
+      "subshells": [
+        { "n": 1, "l": 0, "e": 2 }, { "n": 2, "l": 0, "e": 2 }, { "n": 2, "l": 1, "e": 6 },
+        { "n": 3, "l": 0, "e": 2 }, { "n": 3, "l": 1, "e": 6 }, { "n": 3, "l": 2, "e": 10 },
+        { "n": 4, "l": 0, "e": 2 }, { "n": 4, "l": 1, "e": 6 }
+      ],
+      "commonIons": []
     }
   ]
 }

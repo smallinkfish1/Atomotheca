@@ -16,7 +16,8 @@
 - 自动居中、按分子大小自动适配相机
 - Dear ImGui 控制面板：模型、半径、光照、背景实时调节
 - 点击原子高亮并显示标签，测量键长与键角
-- **元素数据库（Atomotheca）**：21 个元素的电子排布、常见离子由 `assets/data/elements.json` 驱动，改数据不用重编译
+- **元素数据库（Atomotheca）**：36 个元素（H–Kr，前四周期完整）的电子排布、常见离子由 `assets/data/elements.json` 驱动，改数据不用重编译
+- **元素周期表面板**：18 族网格，按 CPK 配色，点击查看排布式并在中性原子 / 常见离子之间切换
 
 <!-- 截图暂缺。要加的话放到 devlog/images/ 下，再取消下一行注释 -->
 <!-- ![screenshot](devlog/images/day15.png) -->
@@ -144,13 +145,14 @@ cd build && ./molecule_viewer    # 在 build 目录
 ./build/molecule_viewer --version            # 查看版本
 ./build/molecule_viewer --dump O             # 打印氧的电子排布与常见离子
 ./build/molecule_viewer --dump Fe            # 打印铁（含 Fe2+ / Fe3+）
+./build/molecule_viewer --dump-table         # 用 ASCII 打印周期表，核对 18 族的排布
 ```
 
 `--dump` 是纯数据层验证，不打开窗口，可以在没有显卡的环境（CI）里跑：
 
 ```
 $ ./build/molecule_viewer --dump Fe
-元素数据库: 21 个元素  |  示例 O: 1s2 2s2 2p4
+元素数据库: 36 个元素  |  示例 O: 1s2 2s2 2p4
 Iron (Fe)  铁
   atomic number : 26
   atomic mass   : 55.845
@@ -174,6 +176,21 @@ Iron (Fe)  铁
 
 > 元素符号大小写写错（`--dump fe`）会自动修正；数据库里没有的元素会列出所有可用符号。
 
+`--dump-table` 用 ASCII 打印整张周期表，用来核对「按周期/族定位」的排布：
+
+```
+$ ./build/molecule_viewer --dump-table
+     1   2   3   4   5   6   7   8   9   10  11  12  13  14  15  16  17  18
+1    H                                                                   He
+2    Li  Be                                          B   C   N   O   F   Ne
+3    Na  Mg                                          Al  Si  P   S   Cl  Ar
+4    K   Ca  Sc  Ti  V   Cr  Mn  Fe  Co  Ni  Cu  Zn  Ga  Ge  As  Se  Br  Kr
+
+图例: 符号=已收录   . =真实存在但未收录   空白=该位置没有元素
+```
+
+前四周期 36 个元素全部收录，所以第 4 周期 18 格是满的。第 2、3 周期中间的空白不是缺数据——那一层没有 d 轨道，3–12 族本就不存在。
+
 ## 操作
 
 - **鼠标左键拖拽**：旋转视角
@@ -183,6 +200,7 @@ Iron (Fe)  铁
 - **滚轮**：缩放
 - **空格键**：切换球棍模型 / 空间填充模型
 - **Tab 键**：显示 / 隐藏控制面板
+- **P 键**：显示 / 隐藏元素周期表
 - **Esc 键**：取消选择（没有选中时退出）
 
 ### 打开分子文件
@@ -219,6 +237,17 @@ Iron (Fe)  铁
 
 面板标签为英文：ImGui 内置字体不含中文字形，需要中文界面要自行加载中文字体文件。
 
+## 元素周期表
+
+按 `P` 键，或勾选控制面板里的 `Periodic table`。它是右侧的一个独立窗口，可以拖动、可以缩放。
+
+- 18 族 × 4 周期网格，顶部有 1–18 的族号表头，每格底色是该元素的 CPK 配色，左上角是原子序数
+- 第 2、3 周期的 3–12 族本来就是空的：那一层没有 d 轨道，不是数据缺失
+- 前四周期已收满；淡灰空框表示「真实存在但数据库没收录」，往后扩到 5–7 周期时才出现
+- 点任一格，下方显示英文名、原子量、周期 / 族、类别、电子排布式
+- 排布式下面若多出一行 `fill order`，说明填充次序与书写顺序不同（如 Fe 是 `4s2 3d6` 而不是 `3d6 4s2`）
+- `Atom` / `Fe2+` / `Fe3+` 按钮切换离子状态，排布式按「先失最外层」重新推算
+
 ## 技术要点
 
 **几何与渲染**
@@ -253,7 +282,12 @@ Iron (Fe)  铁
 - 亚层用 `{n, l, e}` 三个整数表示，容量按 `2 × (2l + 1)` 校验
 - 两套排序：**书写顺序**（按 `n`、`l`，与课本一致）和**填充顺序**（Madelung 规则 `n+l`，体现 4s 在 3d 之前）
 - 阳离子按「**先失最外层**」逐个剥电子，所以 Fe²⁺ 是 `3d⁶`，不是 `3d⁴4s²`
+- **例外显式写进 JSON**：Cr 是 `3d⁵4s¹`、Cu 是 `3d¹⁰4s¹`，不符合 Madelung 规则。数据层不做「规则自动修正」——规则只用来算离子和排序，中性原子的排布以 JSON 为准
 - 加载时做三道校验：字段范围、电子总数 = 原子序数、离子推算自检
+- 周期表按 `(period, group)` 坐标定位，不依赖数组顺序，增删元素不会让其他格子移位
+- 族号表头与格子共用同一套 `SameLine` 坐标，用 `AddText` 居中而不是 `Text`，否则表头数字会和列错开
+- `cellExists()` 区分「位置本来不存在」（第 2、3 周期的 d 区）与「存在但没收录」，前者留白、后者画淡框
+- 格子用 `InvisibleButton` 占位 + `ImDrawList` 自绘：既能画两行文字，又靠 `PushID` 保证每格 ID 唯一
 
 **交互**
 
@@ -286,7 +320,7 @@ molecule-viewer/
 │   └── toolchain-mingw64.cmake  # Linux 上交叉编译 Windows
 ├── assets/                # 示例分子（.mol / .pdb）
 │   └── data/
-│       └── elements.json  # 元素数据库（21 个元素）
+│       └── elements.json  # 元素数据库（36 个元素，H–Kr）
 ├── devlog/                # 每日开发日志与说明文档
 │   └── day15-元素数据库/
 ├── external/
@@ -308,6 +342,8 @@ molecule-viewer/
     ├── orbital/
     │   ├── element.h      # 元素 / 亚层 / 离子 / 数据库 声明
     │   └── element.cpp    # JSON 解析、校验、电子排布、离子推算
+    ├── ui/
+    │   └── periodic_table.h/.cpp  # 元素周期表面板（网格、详情、离子切换）
     └── shaders/           # GLSL 源码
 ```
 
@@ -319,6 +355,7 @@ molecule-viewer/
 | 天 | 主题 | 目录 |
 |---|---|---|
 | 15 | 元素数据库（Atomotheca 模块第 1 天） | [day15-元素数据库](devlog/day15-元素数据库/) |
+| 16 | 元素周期表面板（模块第 2 天） | [day16-元素周期表](devlog/day16-元素周期表/) |
 
 ## 许可证
 

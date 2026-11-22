@@ -60,7 +60,7 @@
 #include <vector>
 
 #ifndef APP_VERSION
-#  define APP_VERSION "0.14.0-dev"
+#  define APP_VERSION "0.2.0-dev"
 #endif
 
 const unsigned int SCR_WIDTH  = 1100;

@@ -471,7 +471,8 @@ molecule-viewer/
 | 17 | 2D 能级图（模块第 3 天） | [day17-能级图](devlog/day17-能级图/) |
 | 18 | 3D s / p 轨道形状（模块第 4 天） | [day18-轨道形状](devlog/day18-轨道形状/) |
 
-每天文档的最后一节固定是「今日功能的变化与修改」，它同时是那个版本的发布说明。
+每天文档的最后一节固定是「今日功能的变化与修改」，每个 `dayNN-*` 目录下另有一份
+`releasenote.md`——它就是那个版本的发布说明。
 
 ## 版本与发布
 
@@ -480,6 +481,8 @@ molecule-viewer/
 - 发布由 CI 完成：push `v*` tag 会三平台编译并自动创建 Release
   （Linux x86_64 tar.gz、Windows MSVC zip、Windows MinGW zip），
   见 [Releases](../../releases) 与 [.github/workflows/build.yml](.github/workflows/build.yml)。
+- Release 正文自动取自 `devlog/dayNN-*/releasenote.md`：CI 取版本号相同的所有文件
+  按天拼接，找不到才退回 GitHub 自动生成的 commit 清单。
 - push 到 `main` 只编译验证、不发版。
 
 ## 许可证

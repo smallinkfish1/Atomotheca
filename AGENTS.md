@@ -141,10 +141,11 @@ external/          glad、json、glm 随仓库；imgui、glfw 由使用者 clone
 
 - **一次只推进一天**。用户说「开始第 N 天」时，只输出第 N 天，不要顺手把后面几天写了。
 - 每天的输出固定六段：今日目标 / 核心概念 / 架构建议 / 代码实现（改现有文件要给修改前后对比）/ 编译与验证 / 排错清单。
-- 每天收尾产出四样：
+- 每天收尾产出五样：
   - `devlog/dayNN-主题/使用说明-第N天-xxx.md`（怎么用 + 逐文件「改了什么/为什么改/影响哪些行为」+ 可直接复制的 Git commit 建议）
   - `devlog/dayNN-主题/第N天实现功能原理.md`（面向零基础的原理推导）
-  - 在「使用说明」最后一节写「今日功能的变化与修改」：用户视角的能力增量、行为变化、命令行变化、本版不支持什么，并附一段可直接粘贴到 GitHub Release 的正文
+  - `devlog/dayNN-主题/releasenote.md`（front matter 写 `version` / `day` / `title`，正文即发布说明；CI 打 tag 时直接拿它当 Release 正文）
+  - 在「使用说明」最后一节写「今日功能的变化与修改」：用户视角的能力增量、行为变化、命令行变化、本版不支持什么
   - 一份 zip（代码按原路径打包，不提交 git）
 - README 默认只给 `README-建议修改版.md`，不直接覆盖；用户明确要求「直接改 README」时才覆盖。
 - 收尾更新 `devlog/README.md` 的索引表和本文的进度表。
@@ -207,7 +208,7 @@ Day 20 之后做架构拆分，见下面技术债。
 
 - 只读用户数据：不修改 `assets/`、不覆盖用户文件；新增示例分子另存新文件。
 - 不自动执行 `git commit` / `git push`：给出可直接复制的建议命令，等用户确认。用户明确授权时才代执行。
-- 不修改 `.github/workflows/build.yml`：CI 与发版流程由用户维护，我只读。
+- 不修改 `.github/workflows/build.yml`，除非用户明确要求；改了就说明改了哪几行、怎么验证（本地可用 `GITHUB_REF_NAME=vX.Y.Z` 跑那个 shell 片段）。
 - 不删构建目录（`rm -rf build` 会被安全策略拦），不碰 `~/`、`/etc`、`~/.config` 等个人目录。
 - 不下载或执行二进制文件；不引入需要网络运行时的依赖。
 - 不修改用户的 shell 配置、全局 CMake 配置、系统包状态；需要装包时把 `apt` 命令写给用户，由用户执行。
@@ -221,7 +222,8 @@ Day 20 之后做架构拆分，见下面技术债。
 - 本项目没有 PR 流程，改动直接进 `main`；但提交前要告诉用户改了哪些文件、验证到什么程度。
 - 发版靠 tag：push `v*` tag 会自动三平台编译并创建 Release。tag 由用户打（或用户明确授权我打建议命令），我不自行 `git tag` / `git push`。
 - tag 只在「当天文档写完 + 编译零告警 + 用户确认功能」之后打；版本号唯一来源是 `CMakeLists.txt` 的 `project(VERSION x.y.z)`（经 `APP_VERSION` 打印），tag 名必须与它一致，别用天数当版本号（`0.14.0` + `v0.2.0` 这种自相矛盾的事不要再出现）。
-- `.github/workflows/build.yml` 由用户自己维护，**不要修改**；CI 出问题先报告，不要动手改。发布正文优先写进当天文档的「今日功能的变化与修改」，不要去改 workflow。
+- **Release 正文来自 `devlog/dayNN-*/releasenote.md`**：CI 取 tag 名去掉 `v` 的版本号，把所有 `version:` 相同的文件按天拼成一篇；一篇都没匹配到才退回 `generate_release_notes`。所以 `releasenote.md` 必须在打 tag **之前**提交，且 `version` 不能写错。
+- `.github/workflows/build.yml` 归用户维护：只有用户明确要求时才改，改完要把「为什么这样改、怎么本地验证」写进当天文档；CI 挂了先报告根因，不要顺手重写整个 workflow。
 
 ## 与用户协作
 

@@ -38,6 +38,7 @@ devlog/
 | 15 | 元素数据库（Atomotheca 模块第 1 天） | [day15-元素数据库](day15-元素数据库/) | `src/orbital/element.{h,cpp}`、`assets/data/elements.json`、`--dump` |
 | 16 | 元素周期表面板（模块第 2 天） | [day16-元素周期表](day16-元素周期表/) | `src/ui/periodic_table.{h,cpp}`、族号表头、P 键开关、`--dump-table`、元素库补到 36 个 |
 | 17 | 2D 能级图（模块第 3 天） | [day17-能级图](day17-能级图/) | `src/ui/energy_diagram.{h,cpp}`、洪特规则箭头、`energySequence()`、`--dump-levels` |
+| 18 | 3D s / p 轨道形状（模块第 4 天） | [day18-轨道形状](day18-轨道形状/) | `src/orbital/shape.{h,cpp}`、`orbital.vert/.frag`、不透明/透明两阶段、`--dump-orbital` |
 
 ## 每天收尾时我会做三件事
 

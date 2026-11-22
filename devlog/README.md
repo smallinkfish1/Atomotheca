@@ -42,6 +42,7 @@ devlog/
 | 16 | 元素周期表面板（模块第 2 天） | [day16-元素周期表](day16-元素周期表/) | `src/ui/periodic_table.{h,cpp}`、族号表头、P 键开关、`--dump-table`、元素库补到 36 个 | [releasenote](day16-元素周期表/releasenote.md) |
 | 17 | 2D 能级图（模块第 3 天） | [day17-能级图](day17-能级图/) | `src/ui/energy_diagram.{h,cpp}`、洪特规则箭头、`energySequence()`、`--dump-levels` | [releasenote](day17-能级图/releasenote.md) |
 | 18 | 3D s / p 轨道形状（模块第 4 天） | [day18-轨道形状](day18-轨道形状/) | `src/orbital/shape.{h,cpp}`、`orbital.vert/.frag`、不透明/透明两阶段、`--dump-orbital` | [releasenote](day18-轨道形状/releasenote.md) |
+| 19 | 3D d 轨道（模块第 5 天） | [day19-d轨道](day19-d轨道/) | `ShapeKind` 扩到 9 个、`buildHarmonicShape()`、逐瓣索引区间、体积自检、下拉框、`--dump-orbital` 九种 | [releasenote](day19-d轨道/releasenote.md) |
 
 ## 每天收尾时我会做四件事
 
@@ -86,7 +87,8 @@ title: 第 18 天 · 3D s / p 轨道形状   ← 在 Release 里作为这一段�
 |---|---|---|
 | `v0.1.0` | Day 13 收尾（`85fba71`） | 球棍/填充模型、文件解析、ImGui 面板、原子拾取（当时还没有 `releasenote.md`，正文是自动生成的） |
 | `v0.2.0` | Day 18 收尾 + CI 修好（`dad288b`） | 元素数据库、周期表、能级图、s/p 轨道；MinGW job 改用 checkout 拉依赖 |
-| `v0.3.0`（建议） | Day 19 收尾后 | d 轨道 + 球谐函数 |
+| `v0.2.1` | Day 19 收尾后 | 五个 d 轨道、逐瓣索引区间、体积自检 |
+| `v0.3.0`（建议） | Day 20 收尾后 | 电子云点云 |
 
 打 tag 的时机：当天文档写完、编译零告警、用户确认功能没问题之后。
 **`releasenote.md` 要在打 tag 之前提交**，否则 tag 指向的提交里没有它，

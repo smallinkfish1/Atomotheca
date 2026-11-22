@@ -79,8 +79,10 @@ cmake --build build-web -j$(nproc)
 ./build/molecule_viewer --dump-table  # 期望 4 行 18 族全满，H 在第 1 族、He 在第 18 族、Kr 在第 4 周期第 18 族
 ./build/molecule_viewer --dump-levels Fe  # 期望 4s 行出现在 3d 行【之后】（文本从上到下 = 能量从高到低）
 ./build/molecule_viewer --dump-levels Ca  # 4s 已满，上方应有空的 3d 占位（next to fill）
-./build/molecule_viewer --dump-orbital s   # 期望 bbox 三轴都是 ±1.000，winding 0 reversed，degenerate 96
-./build/molecule_viewer --dump-orbital pz  # 期望 bbox z=±1.000 而 x/y=±0.500；剖面 y-z 是两个相切的球
+./build/molecule_viewer --dump-orbital s    # 期望 bbox 三轴都是 ±1.000，winding 0 reversed，volume 99.3%，degenerate 96
+./build/molecule_viewer --dump-orbital pz   # 期望 bbox z=±1.000 而 x/y=±0.500；剖面 y-z 是两个相切的球
+./build/molecule_viewer --dump-orbital dxy  # 期望 bbox x/y=±0.768、z=±0.384，4 瓣，volume 98.7%
+./build/molecule_viewer --dump-orbital dz2  # 期望 bbox x/y=±0.500、z=±1.000，3 瓣（两极 + 腰环），volume 98.8%
 ```
 
 - `--dump` 是纯数据层验证，不打开窗口，可在无显卡环境跑。改数据层必须跑这套。
@@ -104,14 +106,14 @@ src/
 ├── file_dialog.h      267     系统文件对话框（Win32 / zenity / osascript）
 ├── orbital/element.h  149     亚层 / 离子 / 元素 / 数据库声明
 ├── orbital/element.cpp 545    JSON 解析、校验、电子排布、离子推算、Madelung 序列
-├── orbital/shape.h     81     s / p 形状枚举、网格结构、颜色、几何自检声明
-├── orbital/shape.cpp  350     球 / 双瓣网格生成 + 绕序与曲面自检 + ASCII 剖面
+├── orbital/shape.h    105     s / p / d 形状枚举、网格结构（含逐瓣区间）、颜色、几何自检声明
+├── orbital/shape.cpp  719     球拼（s/p）+ 球谐变形（d）+ 梯度法线 + 绕序 + 体积自检 + ASCII 剖面
 ├── ui/periodic_table.h  45    周期表面板状态（含 selectedCharge）与入口声明
 ├── ui/periodic_table.cpp 352  18 族网格 + 族号表头、格子自绘、详情区、ASCII 版
 ├── ui/energy_diagram.h  66    能级行 / 缓存状态 / 两个入口声明
 ├── ui/energy_diagram.cpp 354  洪特分配、方框与自旋箭头、悬停反算、ASCII 版
 ├── ui/orbital_panel.h  41     轨道形状状态（形状 / 不透明度 / 隐藏分子）
-├── ui/orbital_panel.cpp 49    控制面板里的形状选择段（不自带 Begin/End）
+├── ui/orbital_panel.cpp 56    控制面板里的形状下拉框（不自带 Begin/End）
 └── shaders/                   sphere / cylinder / orbital 的 vert+frag
 
 assets/            示例分子 .mol / .pdb，以及 data/elements.json（36 个元素）
@@ -161,8 +163,8 @@ external/          glad、json、glm 随仓库；imgui、glfw 由使用者 clone
 | Day 15 | 元素数据库 + 电子排布（Atomotheca 第 1 天） | 完成 |
 | Day 16 | ImGui 元素周期表面板（18 族网格、族号表头、点击详情、离子切换、`--dump-table`） | 完成 |
 | Day 17 | 2D 能级图（能量顺序 + 洪特规则箭头、占位空层、`--dump-levels`） | 完成 |
-| Day 18 | 3D s / p 轨道形状（球 + 双瓣、半透明 + Fresnel、p_x/p_y/p_z 红绿蓝、`--dump-orbital`） | 完成，最新 |
-| Day 19 | 3D d 轨道与球谐函数（d_xy / d_yz / d_z²，UI 下拉切换） | 待开始 |
+| Day 18 | 3D s / p 轨道形状（球 + 双瓣、半透明 + Fresnel、p_x/p_y/p_z 红绿蓝、`--dump-orbital`） | 完成 |
+| Day 19 | 3D d 轨道（5 个球谐形状、梯度法线、逐瓣索引区间、体积自检、UI 下拉框） | 完成，最新 |
 | Day 20 | 电子云点云（`GL_POINTS`，概率密度撒点，点大小与透明度） | 待开始 |
 
 Day 20 之后做架构拆分，见下面技术债。
@@ -171,10 +173,12 @@ Day 20 之后做架构拆分，见下面技术债。
 
 | 问题 | 现状 | 计划 |
 |---|---|---|
-| `main.cpp` 1881 行 | 状态、回调、UI、渲染混在一起（Day 18 已把不透明/透明两阶段抽出成函数） | Day 20 后拆成 `app/` `render/` `ui/` |
+| `main.cpp` 1877 行 | 状态、回调、UI、渲染混在一起（Day 18 已把不透明/透明两阶段抽出成函数） | Day 20 后拆成 `app/` `render/` `ui/` |
 | 应用状态没有归属 | `g_app` / `g_ui` / `g_selected` / 相机角度都是文件级全局变量，回调直接读写 | 拆分前先定数据流归属，否则只是搬代码 |
 | 透明渲染只做了瓣级排序 | Day 18 已实现：先不透明、再按瓣心距离从远到近、关深度写入、每瓣分背面/正面两次画 | 轨道与原子相交时的排序仍是近似；要精确需要逐三角形排序或 OIT，超出本项目范围 |
-| 轨道固定在分子中心 | `drawOrbitals` 用单位网格 × `molR × 1.3` 缩放，不支持跟随某个原子 | 跟随原子需要「选原子 → 选轨道」的交互设计，等 d 轨道之后再说 |
+| 轨道固定在分子中心 | `drawOrbitals` 用单位网格 × `molR × 1.3` 缩放，不支持跟随某个原子 | 跟随原子需要「选原子 → 选轨道」的交互设计 |
+| 单个轨道只有一种颜色 | 物理上相邻瓣的波函数符号相反（+ / −），Day 18–19 都没表达 | 要表达就得按「瓣」给两套配色，和 lobeCenters 天然对得上，可以低成本补 |
+| d 轨道网格固定 96×48 | 没有 LOD，也不按形状自适应（四瓣比 `d_z2` 更吃分辨率） | 目前 9216 三角形/形状完全够用，等 f 轨道或点云时再统一考虑 |
 | `element.cpp` 按值返回 `std::vector<Subshell>` | 能级图已在 `EnergyDiagramState` 里按「元素 + 电荷」缓存，不再每帧重建 | 其它调用点频率低，保持现状 |
 | `elements.json` 只到 Kr（Z=36） | 5–7 周期未收录，f 区完全没有 | 界面按 `maxPeriod` 自适应，会显示 5 行淡框「未收录」；要扩需同时设计镧系锕系的行外摆放 |
 | Web / WASM 未实机验证 | 只有编译级结论 | 后续在 CI 或本地补 |
@@ -203,6 +207,10 @@ Day 20 之后做架构拆分，见下面技术债。
 | 轨道盖在原子上面 | 透明阶段画在了不透明阶段之前 | 先 `drawMoleculeOpaque`，再 `drawOrbitals`，顺序不能反 |
 | 下一帧原子互相穿透、时好时坏 | 透明阶段结束时没还原 `glDepthMask(GL_TRUE)` | 结尾三条必须还原：`glDepthMask`、`glDisable(GL_BLEND)`、`glCullFace(GL_BACK)` |
 | `--dump-orbital` 报 96 / 192 个三角形绕序反了 | UV 球极点整圈顶点重合，叉积为 0，不是绕序问题 | 检查器要先判退化（`glen <= 1e-6 * |e1| * |e2|`）再判 `dot <= 0` |
+| `--dump-orbital` 报 `volume` 偏差 200% 这种整齐倍数 | 解析体积公式写错（`p` 是两个 R/2 的球，应是 `πR³/3`，不是 `/6`） | 先手算一遍再怀疑网格；内接多面体只会让体积偏小 1–2% |
+| d 的某几瓣位置错乱 / 叠在一起 | 还在用「总长 ÷ 瓣数」算索引偏移，但 `d_z2` 的腰环 5184 个三角形、两极各 2016 | 必须用逐瓣的 `lobeFirst / lobeSize` |
+| d 的法线是 0 或乱指 | 节面附近半径趋近 0，差分梯度退化 | `gradientNormal` 失败时退回径向法线；退化三角形本身不算错 |
+| ASCII 剖面里 d 只剩几个点 | 剖面选错平面（`d_xz` 要用 x-z，`d_yz`/`d_z2` 用 y-z） | 平面由形状决定，见 `describeShape` 末尾的 switch |
 
 ## 安全与注意事项
 

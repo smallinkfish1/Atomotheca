@@ -471,6 +471,17 @@ molecule-viewer/
 | 17 | 2D 能级图（模块第 3 天） | [day17-能级图](devlog/day17-能级图/) |
 | 18 | 3D s / p 轨道形状（模块第 4 天） | [day18-轨道形状](devlog/day18-轨道形状/) |
 
+每天文档的最后一节固定是「今日功能的变化与修改」，它同时是那个版本的发布说明。
+
+## 版本与发布
+
+- 当前版本 `0.2.0`，唯一来源是 `CMakeLists.txt` 的 `project(VERSION x.y.z)`，
+  `molecule_viewer --version` 打印的就是它；**tag 名必须与它一致**。
+- 发布由 CI 完成：push `v*` tag 会三平台编译并自动创建 Release
+  （Linux x86_64 tar.gz、Windows MSVC zip、Windows MinGW zip），
+  见 [Releases](../../releases) 与 [.github/workflows/build.yml](.github/workflows/build.yml)。
+- push 到 `main` 只编译验证、不发版。
+
 ## 许可证
 
 MIT License，详见 [LICENSE](LICENSE)。

@@ -12,6 +12,7 @@
 #include <array>
 #include <cstddef>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace orbital
@@ -64,6 +65,13 @@ std::string formatConfigOrdered(const std::vector<Subshell>& subshells);
 
 // 电子总数
 int countElectrons(const std::vector<Subshell>& subshells);
+
+// Madelung 填充顺序，低能量在前：1s 2s 2p 3s 3p 4s 3d 4p 5s ...
+//   (n, l) 对，n 最大到 7。
+// 为什么公开：第 17 天画能级图时要回答「填完这一层，下一个填哪里」，
+// 而能量顺序不能靠 sortByEnergy 推出来 —— 它只能排已有亚层，
+// 排不出「还不存在但存在能量位次」的空层（比如 Ca 的 3d）。
+std::vector<std::pair<int, int>> energySequence();
 
 // ============================================================
 //  离子

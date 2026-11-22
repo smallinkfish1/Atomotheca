@@ -125,8 +125,10 @@ std::string Ion::label(const std::string& symbol) const
     return text;
 }
 
-// Madelung 填充顺序的前若干个 (n, l)，n 最大算到 7 够用
-static std::vector<std::pair<int, int>> madelungSequence()
+// Madelung 填充顺序的前若干个 (n, l)，n 最大算到 7 够用。
+// 外层循环枚举 n+l（能量主要由它决定），内层枚举 n；
+// 同 sum 时 n 小的先 —— 这就是 4s(4+0) 排在 3d(3+2) 之前的原因。
+std::vector<std::pair<int, int>> energySequence()
 {
     std::vector<std::pair<int, int>> seq;
     for (int sum = 1; sum <= 10; ++sum)
@@ -174,7 +176,7 @@ Ion Element::makeIon(int charge) const
     else if (charge < 0)
     {
         // ---- 阴离子：按能级顺序找第一个没住满的亚层，往里塞 ----
-        const std::vector<std::pair<int, int>> seq = madelungSequence();
+        const std::vector<std::pair<int, int>> seq = energySequence();
 
         for (int k = 0; k < -charge; ++k)
         {

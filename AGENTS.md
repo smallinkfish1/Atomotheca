@@ -8,7 +8,7 @@ Atomotheca（原子典）是一个用 C++17 + OpenGL 3.3 手写的分子与原�
 
 - 学习导向的桌面工具，不是工业级产品。不追求渲染百万原子，不做量子化学计算、不做分子动力学。
 - 分子查看器已完成：`.mol`(V2000) / `.pdb` 加载、球棍与空间填充模型、轨道相机、Blinn-Phong 双光源、ImGui 面板、射线拾取、键长键角测量、拖拽与文件对话框、无键表时按共价半径推断化学键。
-- Atomotheca 模块进行中：已完成 JSON 元素库（36 个元素，H–Kr，前四周期完整）、电子排布、离子推算、元素周期表面板（18 族网格 + 族号表头 + 点击详情 + 离子切换）、2D 能级图（能量顺序 + 洪特规则箭头）、3D s / p 轨道形状（半透明，p_x/p_y/p_z 红绿蓝）；待做 d 轨道与球谐函数、电子云点云。
+- Atomotheca 模块进行中：已完成 JSON 元素库（36 个元素，H–Kr，前四周期完整）、电子排布、离子推算、元素周期表面板（18 族网格 + 族号表头 + 点击详情 + 离子切换）、2D 能级图（能量顺序 + 洪特规则箭头）、3D 轨道形状（9 个角向形状，半透明 + Fresnel）、电子云点云（径向函数 + 概率撒点 + 相位两色）；待做 f 轨道、点云跟随原子。
 - 化学数据一律放 `assets/data/*.json`，C++ 代码里禁止硬编码大段化学数据。
 
 ### 技术栈（已锁定，不要更换）
@@ -83,6 +83,11 @@ cmake --build build-web -j$(nproc)
 ./build/molecule_viewer --dump-orbital pz   # 期望 bbox z=±1.000 而 x/y=±0.500；剖面 y-z 是两个相切的球
 ./build/molecule_viewer --dump-orbital dxy  # 期望 bbox x/y=±0.768、z=±0.384，4 瓣，volume 98.7%
 ./build/molecule_viewer --dump-orbital dz2  # 期望 bbox x/y=±0.500、z=±1.000，3 瓣（两极 + 腰环），volume 98.8%
+./build/molecule_viewer --dump-cloud 2s   # 期望 <r> 6.00/6.00、r nodes 1 个且在 r=2.00 a0
+./build/molecule_viewer --dump-cloud 3s   # 期望 2 个节面在 1.90 / 7.10 a0，KS 偏差 < 0.0096
+./build/molecule_viewer --dump-cloud 6s   # 期望 5 个节面、<r> 54.00/54.00、r98 84.4 a0
+./build/molecule_viewer --dump-cloud 3dz2 # 期望 3 瓣、<cos2> 0.523/0.524、dir trials ≈ 5/point
+./build/molecule_viewer --dump-cloud 2d   # 期望退出码 255：n=2 没有 l=2
 ```
 
 - `--dump` 是纯数据层验证，不打开窗口，可在无显卡环境跑。改数据层必须跑这套。
@@ -95,7 +100,7 @@ cmake --build build-web -j$(nproc)
 
 ```
 src/
-├── main.cpp          1881 行  应用状态、GLFW 回调、ImGui 面板、不透明/透明两阶段渲染（待拆分）
+├── main.cpp          2195 行  应用状态、GLFW 回调、ImGui 面板、不透明/点云/透明三阶段渲染（待拆分）
 ├── shader.h           178     着色器编译与 uniform 封装
 ├── sphere.h           105     UV 球网格生成（纯数学）
 ├── cylinder.h          80     圆柱侧面网格
@@ -108,13 +113,17 @@ src/
 ├── orbital/element.cpp 545    JSON 解析、校验、电子排布、离子推算、Madelung 序列
 ├── orbital/shape.h    105     s / p / d 形状枚举、网格结构（含逐瓣区间）、颜色、几何自检声明
 ├── orbital/shape.cpp  719     球拼（s/p）+ 球谐变形（d）+ 梯度法线 + 绕序 + 体积自检 + ASCII 剖面
+├── orbital/cloud.h    102     量子数 / 点 / 统计量 / 采样接口（纯数学）
+├── orbital/cloud.cpp  777     径向函数 + 实球谐 + CDF 反演 + 球面拒绝 + 四类自检 + ASCII 剖面
 ├── ui/periodic_table.h  45    周期表面板状态（含 selectedCharge）与入口声明
 ├── ui/periodic_table.cpp 352  18 族网格 + 族号表头、格子自绘、详情区、ASCII 版
 ├── ui/energy_diagram.h  66    能级行 / 缓存状态 / 两个入口声明
 ├── ui/energy_diagram.cpp 354  洪特分配、方框与自旋箭头、悬停反算、ASCII 版
 ├── ui/orbital_panel.h  41     轨道形状状态（形状 / 不透明度 / 隐藏分子）
 ├── ui/orbital_panel.cpp 56    控制面板里的形状下拉框（不自带 Begin/End）
-└── shaders/                   sphere / cylinder / orbital 的 vert+frag
+├── ui/cloud_panel.h    47     电子云状态（n / 角向 / 点数 / 点径 / 不透明度 / 种子）
+├── ui/cloud_panel.cpp  88     控制面板里的电子云折叠区（不自带 Begin/End）
+└── shaders/                   sphere / cylinder / orbital / cloud 的 vert+frag
 
 assets/            示例分子 .mol / .pdb，以及 data/elements.json（36 个元素）
 devlog/dayNN-主题/  每日交付文档（md 进 git，zip 不进）
@@ -164,20 +173,24 @@ external/          glad、json、glm 随仓库；imgui、glfw 由使用者 clone
 | Day 16 | ImGui 元素周期表面板（18 族网格、族号表头、点击详情、离子切换、`--dump-table`） | 完成 |
 | Day 17 | 2D 能级图（能量顺序 + 洪特规则箭头、占位空层、`--dump-levels`） | 完成 |
 | Day 18 | 3D s / p 轨道形状（球 + 双瓣、半透明 + Fresnel、p_x/p_y/p_z 红绿蓝、`--dump-orbital`） | 完成 |
-| Day 19 | 3D d 轨道（5 个球谐形状、梯度法线、逐瓣索引区间、体积自检、UI 下拉框） | 完成，最新 |
-| Day 20 | 电子云点云（`GL_POINTS`，概率密度撒点，点大小与透明度） | 待开始 |
+| Day 19 | 3D d 轨道（5 个球谐形状、梯度法线、逐瓣索引区间、体积自检、UI 下拉框） | 完成 |
+| Day 20 | 电子云点云（径向函数 R_nl、径向 CDF 反演 + 球面拒绝采样、相位两色、`GL_POINTS` 点云阶段、`--dump-cloud`） | 完成，最新 |
+| Day 21 | 待定（f 轨道 / 点云跟随原子 / 架构拆分） | 待开始 |
 
-Day 20 之后做架构拆分，见下面技术债。
+Day 20 已经做完；`main.cpp` 涨到 2195 行，架构拆分该提上日程了，见下面技术债。
 
 ## 技术债
 
 | 问题 | 现状 | 计划 |
 |---|---|---|
-| `main.cpp` 1877 行 | 状态、回调、UI、渲染混在一起（Day 18 已把不透明/透明两阶段抽出成函数） | Day 20 后拆成 `app/` `render/` `ui/` |
+| `main.cpp` 2195 行 | 状态、回调、UI、渲染混在一起（Day 18 抽出不透明阶段，Day 20 又加了点云阶段） | 拆分优先级已经最高：下一天若不动功能，就先拆 `app/` `render/` `ui/` |
 | 应用状态没有归属 | `g_app` / `g_ui` / `g_selected` / 相机角度都是文件级全局变量，回调直接读写 | 拆分前先定数据流归属，否则只是搬代码 |
 | 透明渲染只做了瓣级排序 | Day 18 已实现：先不透明、再按瓣心距离从远到近、关深度写入、每瓣分背面/正面两次画 | 轨道与原子相交时的排序仍是近似；要精确需要逐三角形排序或 OIT，超出本项目范围 |
 | 轨道固定在分子中心 | `drawOrbitals` 用单位网格 × `molR × 1.3` 缩放，不支持跟随某个原子 | 跟随原子需要「选原子 → 选轨道」的交互设计 |
-| 单个轨道只有一种颜色 | 物理上相邻瓣的波函数符号相反（+ / −），Day 18–19 都没表达 | 要表达就得按「瓣」给两套配色，和 lobeCenters 天然对得上，可以低成本补 |
+| 轨道形状只有一种颜色 | 相邻瓣的波函数符号相反（+ / −），Day 18–19 都没表达；Day 20 的点云已经按相位染色 | 形状要表达相位，得按「瓣」给两套配色，和 `lobeCenters` 天然对得上，可以低成本补 |
+| 点云不做排序 | 几十万个点排不动，只做「深度测试开 + 深度写入关」；沿轴观察时前后两瓣投在同一片像素上会混成紫色 | 体积渲染的固有现象；要精确需要 OIT，超出本项目范围 |
+| 点云只有氢样径向函数 | `radialR()` 用 Z = 1、a₀ = 1，没有屏蔽效应、没有相对论修正 | 若要做「真元素」得引入 Slater 规则的有效核电荷，属于化学模块的下一步 |
+| 没有 f 轨道（l = 3） | `ShapeKind` 只到 d；实球谐要补 7 个式子，且 5–7 周期的 f 区布局 `(period, group)` 表达不了 | f 轨道与 f 区布局一起做，不要只补形状 |
 | d 轨道网格固定 96×48 | 没有 LOD，也不按形状自适应（四瓣比 `d_z2` 更吃分辨率） | 目前 9216 三角形/形状完全够用，等 f 轨道或点云时再统一考虑 |
 | `element.cpp` 按值返回 `std::vector<Subshell>` | 能级图已在 `EnergyDiagramState` 里按「元素 + 电荷」缓存，不再每帧重建 | 其它调用点频率低，保持现状 |
 | `elements.json` 只到 Kr（Z=36） | 5–7 周期未收录，f 区完全没有 | 界面按 `maxPeriod` 自适应，会显示 5 行淡框「未收录」；要扩需同时设计镧系锕系的行外摆放 |
@@ -211,6 +224,12 @@ Day 20 之后做架构拆分，见下面技术债。
 | d 的某几瓣位置错乱 / 叠在一起 | 还在用「总长 ÷ 瓣数」算索引偏移，但 `d_z2` 的腰环 5184 个三角形、两极各 2016 | 必须用逐瓣的 `lobeFirst / lobeSize` |
 | d 的法线是 0 或乱指 | 节面附近半径趋近 0，差分梯度退化 | `gradientNormal` 失败时退回径向法线；退化三角形本身不算错 |
 | ASCII 剖面里 d 只剩几个点 | 剖面选错平面（`d_xz` 要用 x-z，`d_yz`/`d_z2` 用 y-z） | 平面由形状决定，见 `describeShape` 末尾的 switch |
+| 点云全是 1 像素，像一层噪点 | Core Profile 里没开 `GL_PROGRAM_POINT_SIZE`，`gl_PointSize` 不生效 | 启动时 `glEnable`，一次就够 |
+| HiDPI 屏上点小一半 | `sizeScale` 用了 `glfwGetWindowSize` 的高度 | 必须用 `glfwGetFramebufferSize` |
+| 点云中心糊成死白、看不见壳层 | 单点 alpha 乘了密度，等于把 ρ 平方一次 | 单点 alpha 恒定；层次靠点的重叠数自然堆出来 |
+| 1s / 2s / 3s 长得一模一样 | 只画了 `\|Y\|`，没乘 `R_nl`（Day 19 就是这样） | 今天的判据：`r nodes` 应等于 `n−l−1` |
+| 角向拒绝效率掉到 1/13 | `AngularProbe::maxSquared` 初值写成 1.0，而 `\|Y\|²` 峰值只有 0.08–0.40 | 初值必须 0.0；上界偏大只是多试，偏小会悄悄截断分布 |
+| 换了 n / 轨道但 3D 里没变 | 只改了 `CloudState`，没触发重采样 | 比对 `cloudBuiltN/Kind/PointCount/Seed` 后调 `setupCloudPoints()` |
 
 ## 安全与注意事项
 

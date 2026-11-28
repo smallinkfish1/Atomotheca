@@ -19,7 +19,7 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(MoleculeViewer VERSION 0.2.1 LANGUAGES C CXX)
+project(MoleculeViewer VERSION 0.2.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -148,9 +148,11 @@ add_executable(molecule_viewer
     src/main.cpp
     src/orbital/element.cpp      # 第 15 天：元素数据库（数据层，不碰 OpenGL）
     src/orbital/shape.cpp        # 第 18 天：s / p 轨道网格（纯数学，不碰 OpenGL）
+    src/orbital/cloud.cpp        # 第 20 天：电子云采样（同上）
     src/ui/periodic_table.cpp    # 第 16 天：周期表面板（只依赖 ImGui + 数据层）
     src/ui/energy_diagram.cpp    # 第 17 天：能级图（同上）
     src/ui/orbital_panel.cpp     # 第 18 天：轨道形状控制项（同上）
+    src/ui/cloud_panel.cpp       # 第 20 天：电子云控制项（同上）
 )
 
 target_include_directories(molecule_viewer PRIVATE

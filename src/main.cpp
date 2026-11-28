@@ -1,21 +1,22 @@
 // src/main.cpp
-// 第 19 天：3D d 轨道（Atomotheca 模块第 5 天）。
+// 第 20 天：电子云点云（Atomotheca 模块第 6 天）。
 //
 // 主要改动：
-//   1. orbital/shape.{h,cpp} 扩到 9 个形状：新增 d_xy / d_yz / d_xz / d_x2-y2 / d_z2，
-//      走通用路径 buildHarmonicShape()（真的按球谐函数变形球面）
-//   2. ShapeMesh 增加逐瓣的索引区间 lobeFirst / lobeSize —— d 的腰环和两极瓣
-//      三角形数差很多，不能再用「总长 ÷ 瓣数」
-//   3. 渲染按瓣取偏移量画（逻辑没变，只是偏移量来源变了）
-//   4. 面板的形状选择从一排单选按钮改成下拉框（9 个按钮放不下一行）
+//   1. 新增 orbital/cloud.{h,cpp}：径向函数 R_nl + 实球谐 Y（带符号）→ |ψ|²，
+//      先反演径向 CDF 抽 r、再按 |Y|² 拒绝采样抽方向，撒成千上万个点
+//   2. 新增 cloud.vert / cloud.frag：GL_POINTS + 圆盘软边 + 相位两色
+//   3. 渲染新增第三个阶段「点云」：在不透明之后、轨道形状之前
+//   4. 新增 ui/cloud_panel.{h,cpp}：n / 角向 / 点数 / 点径 / 不透明度
+//   5. 新增 --dump-cloud，用统计量和 ASCII 剖面核对采样是否正确（不开窗口）
 //
+// 第 19 天（沿用）：3D d 轨道（角向形状）。
 // 第 18 天（沿用）：s / p 轨道形状 + 半透明两阶段渲染。
 // 第 17 天（沿用）：2D 能级图。
 // 第 16 天（沿用）：Atomotheca 元素周期表面板。
 // 第 15 天（沿用）：Atomotheca 数据层——元素数据库（JSON 驱动）。
 // 第 14 天（沿用）：Emscripten / WebAssembly 适配。
 //
-// 桌面与 Web 的功能完全一致：球棍/填充、光照、拾取、键长键角、元素面板、轨道形状。
+// 桌面与 Web 的功能完全一致：球棍/填充、光照、拾取、键长键角、元素面板、轨道形状、电子云。
 
 // ---------- 平台相关的头 ----------
 #ifdef __EMSCRIPTEN__
@@ -38,9 +39,11 @@
 #include "file_dialog.h"     // 跨平台文件选择对话框（拖拽之外的第二入口）
 #include "orbital/element.h" // Atomotheca 数据层（不依赖 OpenGL）
 #include "orbital/shape.h"   // 第 18 天：轨道形状网格（同上，纯数学）
+#include "orbital/cloud.h"   // 第 20 天：电子云采样（同上，纯数学）
 #include "ui/periodic_table.h"  // 第 16 天：元素周期表面板（只依赖 ImGui + 数据层）
 #include "ui/energy_diagram.h"  // 第 17 天：能级图（同上，只依赖 ImGui + 数据层）
 #include "ui/orbital_panel.h"   // 第 18 天：轨道形状控制项（同上）
+#include "ui/cloud_panel.h"     // 第 20 天：电子云控制项（同上）
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -61,7 +64,7 @@
 #include <vector>
 
 #ifndef APP_VERSION
-#  define APP_VERSION "0.2.1-dev"
+#  define APP_VERSION "0.2.2-dev"
 #endif
 
 const unsigned int SCR_WIDTH  = 1100;
@@ -106,6 +109,7 @@ struct AppState
     Shader* sphereShader   = nullptr;
     Shader* cylinderShader = nullptr;
     Shader* orbitalShader  = nullptr;   // 第 18 天：半透明轨道
+    Shader* cloudShader    = nullptr;   // 第 20 天：电子云点云
 
     unsigned int sphereVAO = 0, sphereVBO = 0, sphereEBO = 0;
     unsigned int cylVAO    = 0, cylVBO    = 0, cylEBO    = 0;
@@ -134,6 +138,27 @@ struct AppState
     // orbital uniforms
     GLint o_model = -1, o_view = -1, o_proj = -1, o_normalMat = -1;
     GLint o_color = -1, o_alpha = -1, o_viewPos = -1, o_lightPos = -1;
+
+    // ---------- 第 20 天：电子云的 GPU 资源 ----------
+    // 只有一份点云：换轨道就整批重传。点云没有拓扑关系，重建成本就是一次
+    // glBufferData（6 万个点 × 16 字节 ≈ 1 MB），比维护九份缓存简单得多。
+    unsigned int cloudVAO = 0, cloudVBO = 0;
+    GLsizei      cloudPointCount = 0;
+
+    // 已经上传的是哪一套量子数 —— 和面板请求的不一致时才重新采样。
+    // 这是「渲染循环内禁止动态分配」的落地方式：抽样会分配几十万个点，
+    // 绝不能每帧做。
+    int                cloudBuiltN          = 0;
+    orbital::ShapeKind cloudBuiltKind       = orbital::ShapeKind::S;
+    int                cloudBuiltPointCount = 0;
+    unsigned           cloudBuiltSeed       = 0;
+
+    orbital::CloudStats cloudStats;     // 面板显示 mean r / r98，渲染按 r98 归一缩放
+
+    // cloud uniforms
+    GLint cl_model = -1, cl_view = -1, cl_proj = -1, cl_viewPos = -1;
+    GLint cl_sizeWorld = -1, cl_sizeScale = -1;
+    GLint cl_colorPos = -1, cl_colorNeg = -1, cl_opacity = -1;
 
     // sphere uniforms
     GLint s_model = -1, s_view = -1, s_proj = -1, s_normalMat = -1;
@@ -213,6 +238,11 @@ ui::EnergyDiagramState g_energy;
 // 和「看哪个元素」是两件事（Day 19 加了 d 轨道之后也仍然无关）。
 ui::OrbitalState g_orbital;
 
+// ==================== 电子云状态 ====================
+// 和 g_orbital 并列但互不影响：一个是「形状外壳」（|Y|），
+// 一个是「概率点云」（|ψ|²），可以同时开，也可以各看各的。
+ui::CloudState g_cloud;
+
 // ==================== 选中状态 ====================
 std::vector<int> g_selected;
 const size_t     MAX_SELECTION = 2;
@@ -249,6 +279,11 @@ const glm::vec3 HIGHLIGHT_COLOR = glm::vec3(1.00f, 0.80f, 0.15f);
 // 第 18 天：轨道形状的整体尺寸 = 分子半径 × 这个系数。
 // 取 1.3 是为了让 p 的两瓣伸出分子外壳一点 —— 正好包住就看不清"哑铃"了。
 const float ORBITAL_EXTENT_FACTOR = 1.30f;
+
+// 第 20 天：电子云的半径 = 分子半径 × 这个系数。
+// 比轨道形状大一点：点云没有硬轮廓，靠外圈零散的点才看出"云"，
+// 收得太紧会显得像一团实心球。真实半径（r98）在面板上以 a₀ 显示。
+const float CLOUD_RADIUS_FACTOR = 1.70f;
 
 // ==================== 相机 ====================
 float g_yaw    = 0.6f;
@@ -423,14 +458,23 @@ static void drop_callback(GLFWwindow* /*window*/, int count, const char** paths)
 }
 
 // ==================== 拾取 ====================
+// 原子现在被两处「看轨道」的功能临时隐藏（形状外壳 / 电子云），
+// 判断条件必须只有一份：三处各写一遍，早晚会出现「画面上没有原子、
+// 却能选中它」这种前后不一致的状态。
+static bool moleculeHiddenForOrbitals()
+{
+    return (g_orbital.visible && g_orbital.hideMolecule) ||
+           (g_cloud.visible   && g_cloud.hideMolecule);
+}
+
 static void doPick(float sx, float sy, bool additive,
                    const glm::mat4& view, const glm::mat4& projection)
 {
     if (g_app.molecule.atoms.empty()) return;
 
-    // 第 18 天：分子被隐藏时（只看轨道形状）不参与拾取。
+    // 第 18 天：分子被隐藏时（只看轨道形状 / 电子云）不参与拾取。
     // 否则会出现"点了空处却选中一个看不见的原子、右侧面板冒出原子信息"的怪状态。
-    if (g_orbital.visible && g_orbital.hideMolecule) return;
+    if (moleculeHiddenForOrbitals()) return;
 
     picking::Ray ray = picking::makeRay(
         sx, sy,
@@ -606,6 +650,11 @@ static void key_callback(GLFWwindow* window, int key, int /*scancode*/,
         // 第 18 天：3D 轨道形状。Ctrl+O 是打开文件，在上面已经 return 了，
         // 所以这里只可能是单独按 O。
         g_orbital.visible = !g_orbital.visible;
+    }
+    else if (key == GLFW_KEY_C)
+    {
+        // 第 20 天：电子云。和 O 并列，可以同时开（云 + 外壳一起看）
+        g_cloud.visible = !g_cloud.visible;
     }
     else if (key == GLFW_KEY_ESCAPE)
     {
@@ -867,6 +916,10 @@ static void DrawControlPanel()
         // 第 18 天：轨道形状。放在控制面板里而不是新开窗口——
         // 屏幕上已经有面板 + 周期表 + 能级图，再加窗口只会互相遮挡。
         ui::drawOrbitalControls(g_orbital);
+        ImGui::Spacing();
+
+        // 第 20 天：电子云。同样是一段折叠区，和轨道形状各管各的。
+        ui::drawCloudControls(g_cloud, g_app.cloudStats);
         ImGui::Spacing();
 
         ImGui::TextColored(ImVec4(0.55f, 0.80f, 1.0f, 1.0f), "ANIMATION");
@@ -1205,6 +1258,75 @@ static void drawOrbitals(const glm::mat4& view, const glm::mat4& projection,
 }
 
 // ============================================================
+//  第 20 天：电子云点云
+//
+//  和最上面那段三角形渲染的差别，全在「没有三角形」这件事上：
+//
+//  1. 一个点就是一个像素方块（gl_PointSize 可以改大），片段着色器里
+//     用 gl_PointCoord 把它裁成圆盘。没有顶点、没有绕序、没有背面。
+//  2. 点的**数量密度**就是概率密度，所以每个点的 alpha 是常数。
+//     再按 ρ 调亮度等于把密度平方一次，中心会糊成死白（见 cloud.cpp 开头）。
+//  3. 几十万个点没法排序（半透明排序那一套在这里失效），
+//     所以只做「深度测试 + 不写深度」：被原子挡住的不画，
+//     点与点之间按到达顺序混合。因为单点 alpha 很低、点又小，
+//     顺序差异肉眼看不出来 —— 这是点云和三角面片在混合策略上的根本区别。
+//  4. 尺寸按 r98 归一：不同 n 的真实半径差好几倍（1s ≈ 3 a₀、4s ≈ 30 a₀），
+//     统一缩放到分子尺度，比的才是「形状」而不是「大小」。真实半径写在面板上。
+// ============================================================
+static void drawCloud(const glm::mat4& view, const glm::mat4& projection)
+{
+    AppState& app = g_app;
+
+    if (app.cloudShader == nullptr || app.cloudPointCount <= 0 || app.cloudStats.r98 <= 0.0f)
+        return;
+
+    const float radiusWorld = std::max(app.molR, 0.35f) * CLOUD_RADIUS_FACTOR;
+    const float scale       = radiusWorld / app.cloudStats.r98;
+
+    glm::mat4 model = glm::scale(glm::mat4(1.0f), glm::vec3(scale));
+    model = g_spinMatrix * model;      // 和轨道形状一样跟着自动旋转，否则会"漂"在外面
+
+    // 点的世界直径 = 云半径 × 面板上的百分比
+    const float pointSizeWorld = radiusWorld * g_cloud.pointSize * 0.01f;
+
+    // 世界尺寸 → 像素：距离 d 处，1 个世界单位占 (视口高/2)/(tan(fov/2)·d) 个像素。
+    // 视口高要用**帧缓冲**高度而不是窗口高度：HiDPI 屏上两者差一倍，
+    // 用窗口高度会让 Retina 上点小一半。
+    int fbW = 0, fbH = 0;
+    glfwGetFramebufferSize(app.window, &fbW, &fbH);
+    const float sizeScale =
+        (fbH > 0) ? (0.5f * static_cast<float>(fbH)) /
+                    std::tan(glm::radians(FOV_DEG) * 0.5f)
+                  : 600.0f;
+
+    const orbital::Rgb positive = orbital::phaseColor(+1.0f);
+    const orbital::Rgb negative = orbital::phaseColor(-1.0f);
+
+    app.cloudShader->use();
+    glUniformMatrix4fv(app.cl_model, 1, GL_FALSE, glm::value_ptr(model));
+    glUniformMatrix4fv(app.cl_view, 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(app.cl_proj, 1, GL_FALSE, glm::value_ptr(projection));
+    glUniform3f(app.cl_viewPos, g_cameraPos.x, g_cameraPos.y, g_cameraPos.z);
+    glUniform1f(app.cl_sizeWorld, pointSizeWorld);
+    glUniform1f(app.cl_sizeScale, sizeScale);
+    glUniform3f(app.cl_colorPos, positive.r, positive.g, positive.b);
+    glUniform3f(app.cl_colorNeg, negative.r, negative.g, negative.b);
+    glUniform1f(app.cl_opacity, g_cloud.opacity);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);             // 测试留着、写入关掉：点云不能互相遮挡
+
+    glBindVertexArray(app.cloudVAO);
+    glDrawArrays(GL_POINTS, 0, app.cloudPointCount);
+    glBindVertexArray(0);
+
+    // 还原因透明阶段借用过的状态（漏掉 glDepthMask 的后果见 drawOrbitals 末尾）
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+}
+
+// ============================================================
 //  一帧的全部工作
 //
 //  桌面：由 while 循环反复调用
@@ -1212,6 +1334,10 @@ static void drawOrbitals(const glm::mat4& view, const glm::mat4& projection,
 //
 //  所以它不能有任何"局部持久状态"——所有跨帧数据都在 g_app / 全局变量里
 // ============================================================
+// 前置声明：函数体在 setupOrbitalMeshes 之后（那里才是「建网格」的地盘），
+// 但渲染循环需要在参数变化时调用它。
+static void setupCloudPoints();
+
 static void renderFrame()
 {
     AppState& app = g_app;
@@ -1253,6 +1379,18 @@ static void renderFrame()
                                   g_periodic.selectedCharge(*current), g_energy);
     }
 
+    // 第 20 天：电子云只在参数变化时重采样。
+    // 比的是四个标量（n / 角向 / 点数 / 种子），不是比整块点坐标 ——
+    // 几十万个 float 的逐字节比较每帧都要跑一遍，比重新采样还慢。
+    if (g_cloud.visible &&
+        (g_cloud.n != app.cloudBuiltN ||
+         g_cloud.angular != app.cloudBuiltKind ||
+         g_cloud.pointCount != app.cloudBuiltPointCount ||
+         g_cloud.seed != app.cloudBuiltSeed))
+    {
+        setupCloudPoints();
+    }
+
     // ---------- 相机 ----------
     // 注意：必须放在面板之后。
     // 面板里可能刚加载了新分子（改了 g_radius / app.molR），
@@ -1277,8 +1415,8 @@ static void renderFrame()
     glm::vec3 fillColor    = FILL_LIGHT_BASE * g_ui.fillStrength;
 
     // 第 18 天：分子被隐藏时，标签也不能留 —— 否则几个字母会浮在轨道形状上，
-    // 指向根本不存在的原子。
-    const bool moleculeVisible = !(g_orbital.visible && g_orbital.hideMolecule);
+    // 指向根本不存在的原子。（第 20 天的电子云用同一个判断）
+    const bool moleculeVisible = !moleculeHiddenForOrbitals();
 
     if (moleculeVisible)
         DrawAtomLabels(view, projection);
@@ -1289,10 +1427,15 @@ static void renderFrame()
     glClearColor(g_ui.bgColor[0], g_ui.bgColor[1], g_ui.bgColor[2], 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // 分两个阶段：先不透明（原子、键），再半透明（轨道）。
+    // 分三个阶段：先不透明（原子、键），再点云，最后半透明外壳。
     // 顺序不能颠倒 —— 透明物体必须最后画，否则会被先画的原子盖掉。
+    // 点云排在轨道形状之前：外壳是「包在外面的壳」，让壳压在云上面更符合直觉。
     if (moleculeVisible)
         drawMoleculeOpaque(view, projection, lightPos, fillLightPos, fillColor);
+
+    // 第 20 天：电子云（几十万个半透明点）
+    if (g_cloud.visible)
+        drawCloud(view, projection);
 
     // 第 18 天：轨道形状（半透明，必须在不透明阶段之后）
     if (g_orbital.visible)
@@ -1401,6 +1544,57 @@ static void setupOrbitalMeshes()
     }
 }
 
+// ============================================================
+//  第 20 天：电子云的点缓冲
+//
+//  面板一次只请求一套量子数，所以只维护一份 VBO。
+//  比对「已经上传的那一套」和「面板现在要的那一套」，不一致才重新采样 ——
+//  采 6 万个点要几十毫秒，还要分配 1 MB 内存，放进每帧必跑的主循环是灾难。
+//  所以这里不是「每帧重建」，而是「参数变了才重建」。
+// ============================================================
+static void setupCloudPoints()
+{
+    AppState& app = g_app;
+
+    if (app.cloudVAO == 0)
+    {
+        glGenVertexArrays(1, &app.cloudVAO);
+        glGenBuffers(1, &app.cloudVBO);
+    }
+
+    std::vector<orbital::CloudPoint> points;
+    orbital::CloudStats              stats;
+    orbital::buildCloud(g_cloud.n, g_cloud.angular, g_cloud.pointCount,
+                        g_cloud.seed, points, stats);
+
+    app.cloudStats      = stats;
+    app.cloudPointCount = static_cast<GLsizei>(points.size());
+
+    glBindVertexArray(app.cloudVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, app.cloudVBO);
+
+    // GL_DYNAMIC_DRAW：换轨道就整块替换，不是一次上传终身不变
+    glBufferData(GL_ARRAY_BUFFER,
+                 static_cast<GLsizeiptr>(points.size() * sizeof(orbital::CloudPoint)),
+                 points.empty() ? nullptr : points.data(),
+                 GL_DYNAMIC_DRAW);
+
+    // 顶点布局：[x, y, z, phase]，4 个 float 一组。
+    // 和球/轨道网格的 [pos, normal] 不同，所以 stride 与偏移量都是自己的。
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                          (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);
+
+    app.cloudBuiltN          = g_cloud.n;
+    app.cloudBuiltKind       = g_cloud.angular;
+    app.cloudBuiltPointCount = g_cloud.pointCount;
+    app.cloudBuiltSeed       = g_cloud.seed;
+}
+
 // ==================== GLFW 错误回调 ====================
 // GLFW 的 API 大多是"失败只返回 0/false"，不抛异常、不打日志。
 // 不挂这个回调，出错时只能看到一句"初始化失败"，排查全靠猜。
@@ -1423,6 +1617,12 @@ int main(int argc, char** argv)
     bool        dumpOrbitalAll = false;   // 不带形状参数 = 九个形状全打
     orbital::ShapeKind dumpOrbitalKind = orbital::ShapeKind::S;
 
+    bool        dumpCloud     = false;    // 是否出现 --dump-cloud
+    bool        dumpCloudSpec = false;    // 是否给了具体的 n + 形状
+    std::string dumpCloudBad;             // 形如 "2d" / "7s"：想写轨道，但这组合不存在
+    int         dumpCloudN    = 1;
+    orbital::ShapeKind dumpCloudKind = orbital::ShapeKind::S;
+
     for (int i = 1; i < argc; ++i)
     {
         std::string arg = argv[i];
@@ -1433,7 +1633,8 @@ int main(int argc, char** argv)
                 << "Molecule Viewer v" << APP_VERSION << "\n\n"
                 << "用法: molecule_viewer [分子文件] [--dump <元素符号>]\n"
                 << "                      [--dump-table] [--dump-levels <元素符号>]\n"
-                << "                      [--dump-orbital [s|px|py|pz]]\n\n"
+                << "                      [--dump-orbital [形状]]\n"
+                << "                      [--dump-cloud [n+形状]]\n\n"
                 << "  [分子文件]   支持 .mol (V2000) 和 .pdb\n"
                 << "               省略时默认加载 assets/methane.mol\n\n"
                 << "  --dump <符号>  打印元素的电子排布与所有常见离子，然后退出。\n"
@@ -1451,6 +1652,12 @@ int main(int argc, char** argv)
                 << "                 检查顶点数、包围盒、法线长度、三角形绕序、\n"
                 << "                 顶点是否落在解析曲面上、有向体积是否对得上。\n"
                 << "                 例: --dump-orbital   --dump-orbital dz2\n\n"
+                << "  --dump-cloud [n形状]  打印电子云采样的自检结果与 ASCII 剖面。\n"
+                << "                 写法是「主量子数 + 形状」：1s / 2pz / 3dz2 / 4dxy，\n"
+                << "                 省略则打一组默认轨道的摘要表。\n"
+                << "                 检查 <r> 与 <r2> 是否对上闭式解、<cos2> 是否对上球面积分、\n"
+                << "                 径向节面数是否等于 n-l-1、径向 CDF 的 KS 统计量。\n"
+                << "                 例: --dump-cloud   --dump-cloud 3dz2\n\n"
                 << "操作:\n"
                 << "  左键拖拽     旋转视角\n"
                 << "  左键单击     选中原子\n"
@@ -1461,6 +1668,7 @@ int main(int argc, char** argv)
                 << "  P            显示 / 隐藏元素周期表\n"
                 << "  L            显示 / 隐藏能级图\n"
                 << "  O            显示 / 隐藏轨道形状（s / p / d）\n"
+                << "  C            显示 / 隐藏电子云（概率密度点云）\n"
                 << "  Esc          取消选择；没有选中时退出\n";
             return 0;
         }
@@ -1522,9 +1730,39 @@ int main(int argc, char** argv)
             continue;
         }
 
+        // 第 20 天：--dump-cloud [n + 形状]
+        // 和 --dump-orbital 一样，「可选参数」只在它确实能解析成轨道时才吃掉，
+        // 否则下一个词可能是分子文件路径。
+        if (arg == "--dump-cloud")
+        {
+            dumpCloud = true;
+
+            if (i + 1 < argc)
+            {
+                int                nn = 1;
+                orbital::ShapeKind k  = orbital::ShapeKind::S;
+                if (orbital::parseOrbitalSpec(argv[i + 1], &nn, &k))
+                {
+                    dumpCloudN    = nn;
+                    dumpCloudKind = k;
+                    dumpCloudSpec = true;
+                    ++i;
+                }
+                else
+                {
+                    // 以数字开头就说明用户想写轨道（2d、7s、0s…），只是组合不存在。
+                    // 这种要报错，不能默默按「没给参数」处理——那样会打一张
+                    // 摘要表，用户还以为 2d 被接受了。
+                    const std::string next = argv[i + 1];
+                    if (!next.empty() && std::isdigit(static_cast<unsigned char>(next[0])))
+                        dumpCloudBad = next;
+                }
+            }
+            continue;
+        }
+
         userPath = arg;
     }
-
     // ---------- 元素数据库 ----------
     // 放在 GLFW 初始化之前：--dump 是纯数据层验证，不需要窗口，
     // 数据和渲染彻底解耦，headless（无显卡/CI）环境也能跑。
@@ -1621,6 +1859,58 @@ int main(int argc, char** argv)
         }
         return 0;
     }
+
+    // ---------- --dump-cloud ----------
+    // 采样也是纯数学：不开窗口、不需要元素数据库，无显卡环境照样能跑。
+    if (dumpCloud)
+    {
+        const int kDumpPoints = 20000;   // 统计量在 2 万点下已经够用，全打一遍只要几十毫秒
+
+        if (!dumpCloudBad.empty())
+        {
+            std::cerr << "[错误] 不存在这个轨道: " << dumpCloudBad << "\n";
+            std::cerr << "       写法是「主量子数 + 形状」，例如 3dz2 / 4p_x / 1s。\n";
+            std::cerr << "       n 只能取 1..6，并且 l <= n-1（所以 1p、2d 都不存在）；\n"
+                      << "       角向部分目前只做到 s / p / d，f 及更高还没实现。\n";
+            return -1;
+        }
+
+        if (dumpCloudSpec)
+        {
+            std::cout << orbital::describeCloud(dumpCloudN, dumpCloudKind, kDumpPoints);
+        }
+        else
+        {
+            // 默认列表特意把 1s / 2s / 3s 排在一起：三者的角向部分完全一样，
+            // 只有径向不同。Day 19 的 |Y| 形状画出来是同一颗球，这里却能看出
+            // 「一个球套一个球」——这就是今天补上 R_nl 的意义。
+            struct Entry
+            {
+                int                n;
+                orbital::ShapeKind kind;
+            };
+            static const Entry kDefaults[] = {
+                { 1, orbital::ShapeKind::S   },
+                { 2, orbital::ShapeKind::S   },
+                { 3, orbital::ShapeKind::S   },
+                { 2, orbital::ShapeKind::Pz  },
+                { 3, orbital::ShapeKind::Pz  },
+                { 3, orbital::ShapeKind::Dz2 },
+                { 3, orbital::ShapeKind::Dxy },
+                { 4, orbital::ShapeKind::S   },
+            };
+
+            std::cout << "electron cloud sampling check   (20000 points each, seed = 1)\n";
+            std::cout << "  <r> / <r2> : sample vs closed form      cos2 : sample vs sphere integral\n";
+            std::cout << "  r98 : radius holding 98% (a0)           nodes : measured / n-l-1\n\n";
+
+            for (const Entry& e : kDefaults)
+                std::cout << orbital::cloudSummaryLine(e.n, e.kind, kDumpPoints) << "\n";
+
+            std::cout << "\nuse --dump-cloud 3dz2 for one orbital in full (stats + ASCII slice)\n";
+        }
+        return 0;
+    }
 #else
     // Web：资源已打包进虚拟文件系统，路径固定
     std::string dbError;
@@ -1713,6 +2003,16 @@ int main(int argc, char** argv)
     glFrontFace(GL_CCW);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
+    // 第 20 天：Core Profile 里 gl_PointSize 默认**不生效** ——
+    // 不开这个开关，所有点都会是最小的 1 像素，点云看起来像一层噪点。
+    // 它不是渲染循环里的逐帧状态，只在启动时开一次。
+    //
+    // Web（GLES3）不需要也不该调：那边 gl_PointSize 一直有效，
+    // 而且 ES 的头文件里不一定有这个常量。
+#ifndef __EMSCRIPTEN__
+    glEnable(GL_PROGRAM_POINT_SIZE);
+#endif
+
     // ---------- ImGui ----------
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -1768,9 +2068,11 @@ int main(int argc, char** argv)
     std::string cfPath = pathutil::resolveResource("src/shaders/cylinder.frag");
     std::string ovPath = pathutil::resolveResource("src/shaders/orbital.vert");
     std::string ofPath = pathutil::resolveResource("src/shaders/orbital.frag");
+    std::string clvPath = pathutil::resolveResource("src/shaders/cloud.vert");
+    std::string clfPath = pathutil::resolveResource("src/shaders/cloud.frag");
 
     if (svPath.empty() || sfPath.empty() || cvPath.empty() || cfPath.empty() ||
-        ovPath.empty() || ofPath.empty())
+        ovPath.empty() || ofPath.empty() || clvPath.empty() || clfPath.empty())
     {
         std::cerr << "[错误] 找不到着色器文件。" << std::endl;
 
@@ -1785,6 +2087,7 @@ int main(int argc, char** argv)
     g_app.sphereShader   = new Shader(svPath.c_str(), sfPath.c_str());
     g_app.cylinderShader = new Shader(cvPath.c_str(), cfPath.c_str());
     g_app.orbitalShader  = new Shader(ovPath.c_str(), ofPath.c_str());
+    g_app.cloudShader    = new Shader(clvPath.c_str(), clfPath.c_str());
 
     // ---------- 缓存 uniform 位置 ----------
     {
@@ -1828,6 +2131,17 @@ int main(int argc, char** argv)
         g_app.o_alpha     = glGetUniformLocation(oid, "baseAlpha");
         g_app.o_viewPos   = glGetUniformLocation(oid, "viewPos");
         g_app.o_lightPos  = glGetUniformLocation(oid, "lightPos");
+
+        GLuint clid = g_app.cloudShader->ID;
+        g_app.cl_model     = glGetUniformLocation(clid, "model");
+        g_app.cl_view      = glGetUniformLocation(clid, "view");
+        g_app.cl_proj      = glGetUniformLocation(clid, "projection");
+        g_app.cl_viewPos   = glGetUniformLocation(clid, "viewPos");
+        g_app.cl_sizeWorld = glGetUniformLocation(clid, "pointSizeWorld");
+        g_app.cl_sizeScale = glGetUniformLocation(clid, "sizeScale");
+        g_app.cl_colorPos  = glGetUniformLocation(clid, "colorPositive");
+        g_app.cl_colorNeg  = glGetUniformLocation(clid, "colorNegative");
+        g_app.cl_opacity   = glGetUniformLocation(clid, "opacity");
     }
 
     g_lastFrame = (float)glfwGetTime();
@@ -1848,9 +2162,11 @@ int main(int argc, char** argv)
     delete g_app.sphereShader;
     delete g_app.cylinderShader;
     delete g_app.orbitalShader;
+    delete g_app.cloudShader;
     g_app.sphereShader = nullptr;
     g_app.cylinderShader = nullptr;
     g_app.orbitalShader = nullptr;
+    g_app.cloudShader = nullptr;
 
     glDeleteVertexArrays(1, &g_app.sphereVAO);
     glDeleteBuffers(1, &g_app.sphereVBO);
@@ -1864,6 +2180,13 @@ int main(int argc, char** argv)
         glDeleteVertexArrays(1, &g_app.orbVAO[i]);
         glDeleteBuffers(1, &g_app.orbVBO[i]);
         glDeleteBuffers(1, &g_app.orbEBO[i]);
+    }
+
+    // 第 20 天：点云。VAO 为 0 表示从没显示过（没建过缓冲），跳过。
+    if (g_app.cloudVAO != 0)
+    {
+        glDeleteVertexArrays(1, &g_app.cloudVAO);
+        glDeleteBuffers(1, &g_app.cloudVBO);
     }
 
     ImGui_ImplOpenGL3_Shutdown();
